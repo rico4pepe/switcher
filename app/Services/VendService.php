@@ -7,11 +7,22 @@ use App\Models\RoutingConfig;
 use Illuminate\Support\Str;
 //use App\Services\Vendors\MockVendorDriver;
 use App\Services\Vendors\VendorDriverResolver;
+use App\DataTransferObjects\TransactionRequestData;
 
 class VendService
 {
+
+
     public function handle(array $data): array
     {
+
+            $data['product_type'] = strtolower(
+            trim($data['product_type'])
+        );
+
+        $data['network'] = strtoupper(
+            trim($data['network'])
+        );
         // 1. IDEMPOTENCY CHECK
         $existing = Transaction::where('tracking_id', $data['tracking_id'])->first();
 
@@ -20,10 +31,16 @@ class VendService
         }
 
         // 2. RESOLVE ROUTING
-        $routing = RoutingConfig::where('product_type', $data['product_type'])
-            ->where('network', $data['network'])
-            ->where('is_active', true)
-            ->firstOrFail();
+       $routing = RoutingConfig::where(
+        'product_type',
+        $data['product_type']
+    )
+    ->where(
+        'network',
+        $data['network']
+    )
+    ->where('is_active', true)
+    ->firstOrFail();
 
         //$vendorId = $this->resolveVendor($routing);
 
@@ -36,29 +53,37 @@ class VendService
         }
     }
 
-    private function resolveVendor($routing)
-    {
-        // 🔥 CORE RULE
-        if ($routing->mode === 'manual') {
-            return $routing->primary_vendor_id;
-        }
+    // private function resolveVendor($routing)
+    // {
+    //     // 🔥 CORE RULE
+    //     if ($routing->mode === 'manual') {
+    //         return $routing->primary_vendor_id;
+    //     }
 
-        // Auto mode comes later
-        return $routing->primary_vendor_id;
-    }
+    //     // Auto mode comes later
+    //     return $routing->primary_vendor_id;
+    // }
 
-  private function formatResponse(Transaction $tx): array
-        {
-            $vendorResponse = $tx->raw_vendor_response ?? [];
+            private function formatResponse(
+                Transaction $transaction
+            ): array {
 
-            return [
-                'status' => $tx->status,
-                'reference' => $tx->ringo_reference,
-                'message' => $vendorResponse['message']
-                    ?? $this->fallbackMessage($tx->status),
-            ];
-        }
+                return [
 
+                    'status' => $transaction->status,
+
+                    'reference' => $transaction->ringo_reference,
+
+                    'tracking_id' => $transaction->tracking_id,
+
+                    'message' => data_get(
+                        $transaction->raw_vendor_response,
+                        'message',
+                        'Transaction processed'
+                    ),
+
+                ];
+            }
 private function fallbackMessage(string $status): string
     {
         return match ($status) {
@@ -263,7 +288,9 @@ private function fallbackMessage(string $status): string
 
             try {
 
-                $response = $driver->vend($data);
+            $payload = $this->buildPayload($data);
+
+                $response = $driver->vend($payload);
 
                 // 🔥 EVENT: vendor response
                 $this->logEvent(
@@ -333,7 +360,9 @@ private function fallbackMessage(string $status): string
 
         try {
 
-            $response = $driver->vend($data);
+            $payload = $this->buildPayload($data);
+
+                $response = $driver->vend($payload);
 
             // 🔥 EVENT: vendor response
             $this->logEvent(
@@ -410,7 +439,8 @@ private function fallbackMessage(string $status): string
                     ]
                 );
 
-                $response = $driver->vend($data);
+              $payload = $this->buildPayload($data);
+                $response = $driver->vend($payload);
 
                 // 🔥 EVENT: vendor response
                 $this->logEvent(
@@ -606,6 +636,22 @@ private function fallbackMessage(string $status): string
                 'meta' => $meta,
             ]);
         }
+
+
+        private function buildPayload(
+    array $data
+): TransactionRequestData {
+
+    return new TransactionRequestData(
+        $data['tracking_id'],
+        $data['client_id'],
+        $data['product_type'],
+        $data['network'],
+        $data['beneficiary'] ?? null,
+        $data['amount'],
+        $data['meta'] ?? [],
+    );
+}
 
 
 }
