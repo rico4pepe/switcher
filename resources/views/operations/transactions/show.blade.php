@@ -81,15 +81,36 @@
                     </p>
                 </div>
 
-                <div>
-                    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">
-                        Response Time
-                    </p>
+               <div>
 
-                    <p class="mt-2 text-sm font-medium text-slate-900">
-                        {{ $transaction->response_time_ms ?? 'N/A' }} ms
-                    </p>
-                </div>
+    <p class="text-xs font-medium uppercase tracking-wide text-slate-500">
+        Response Time
+    </p>
+
+    @php
+
+        $latency = $transaction->response_time_ms;
+
+        $latencyColor = match (true) {
+
+            $latency === null => 'text-slate-500',
+
+            $latency < 2000 => 'text-green-600',
+
+            $latency < 5000 => 'text-yellow-600',
+
+            default => 'text-red-600',
+        };
+
+    @endphp
+
+    <p class="mt-2 text-sm font-semibold {{ $latencyColor }}">
+
+        {{ $latency ? number_format($latency) . ' ms' : 'N/A' }}
+
+    </p>
+
+</div>
 
             </div>
 
@@ -207,6 +228,26 @@
                     </p>
                 </div>
 
+                <div>
+    <p class="text-xs uppercase tracking-wide text-slate-500">
+        Pending Age
+    </p>
+
+    <p class="mt-2 text-sm font-medium text-slate-900">
+
+        @if ($transaction->status === 'pending')
+
+            {{ $transaction->created_at->diffForHumans() }}
+
+        @else
+
+            —
+
+        @endif
+
+    </p>
+</div>
+
             </div>
 
 </div>
@@ -227,7 +268,7 @@
 
         <div class="overflow-x-auto p-6">
 
-            <pre class="text-xs leading-6 text-slate-700">{{ json_encode($transaction->raw_vendor_request, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+            <pre class="overflow-x-auto rounded-lg bg-slate-50 p-4 text-xs leading-6 text-slate-700">{{ json_encode($transaction->raw_vendor_request, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
 
         </div>
 
@@ -246,7 +287,7 @@
 
         <div class="overflow-x-auto p-6">
 
-            <pre class="text-xs leading-6 text-slate-700">{{ json_encode($transaction->raw_vendor_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
+            <pre class="overflow-x-auto rounded-lg bg-slate-50 p-4 text-xs leading-6 text-slate-700">{{ json_encode($transaction->raw_vendor_response, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) }}</pre>
 
         </div>
 
@@ -266,7 +307,32 @@
 
    <div class="relative divide-y divide-slate-100">
 
-        @forelse ($transaction->events as $event)
+    @php
+
+    $eventColors = [
+
+        'transaction_created' => 'bg-slate-400',
+
+        'vendor_called' => 'bg-blue-500',
+
+        'vendor_response' => 'bg-green-500',
+
+        'vendor_exception' => 'bg-red-500',
+
+        'failover_triggered' => 'bg-yellow-500',
+
+        'requery_started' => 'bg-indigo-500',
+
+        'requery_response' => 'bg-purple-500',
+
+        'requery_resolved' => 'bg-green-500',
+
+        'requery_rejected' => 'bg-red-500',
+    ];
+
+@endphp
+
+        @forelse ($transaction->events->sortByDesc('created_at') as $event)
 
          <div class="relative px-6 py-5">
 
@@ -275,7 +341,7 @@
         {{-- Timeline Dot --}}
         <div class="mt-1.5 flex flex-col items-center">
 
-            <div class="h-3 w-3 rounded-full bg-slate-400"></div>
+           <div class="h-3 w-3 rounded-full {{ $eventColors[$event->event_type] ?? 'bg-slate-400' }}"></div>
 
             @unless ($loop->last)
 
@@ -296,7 +362,11 @@
 
                 <p class="text-xs text-slate-500">
                     {{ $event->created_at->format('M d, Y h:i:s A') }}
+                    <span class="text-xs text-slate-400">
+                        • {{ $event->created_at->diffForHumans() }}
+                    </span>
                 </p>
+
 
             </div>
 

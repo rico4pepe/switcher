@@ -36,6 +36,16 @@ class TransactionFilter
             )
 
             ->when(
+                $this->request->filled('customer'),
+
+                fn ($query) => $query->where(
+                    'beneficiary',
+                    'like',
+                    '%' . $this->request->customer . '%'
+                )
+            )
+
+            ->when(
                 $this->request->filled('vendor'),
                 fn ($query) => $query->whereHas(
                     'vendor',
@@ -43,6 +53,22 @@ class TransactionFilter
                         'name',
                         $this->request->vendor
                     )
+                )
+            )
+            ->when(
+                $this->request->filled('service'),
+
+                fn ($query) => $query->where(
+                    'product_type',
+                    strtolower($this->request->service)
+                )
+            )
+            ->when(
+                $this->request->filled('date'),
+
+                fn ($query) => $query->whereDate(
+                    'created_at',
+                    $this->request->date
                 )
             );
     }

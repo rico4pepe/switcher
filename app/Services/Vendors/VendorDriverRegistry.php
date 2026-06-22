@@ -2,6 +2,8 @@
 
 namespace App\Services\Vendors;
 
+use RuntimeException;
+
 class VendorDriverRegistry
 {
     public static function drivers(): array
@@ -23,8 +25,22 @@ class VendorDriverRegistry
                 'class' => VendifyDriver::class,
             ],
 
-            
-
         ];
+    }
+
+    public function resolve(string $driverKey): VendorInterface
+    {
+        $drivers = self::drivers();
+
+        if (! isset($drivers[$driverKey])) {
+
+            throw new RuntimeException(
+                "Vendor driver [{$driverKey}] not registered."
+            );
+        }
+
+        $driverClass = $drivers[$driverKey]['class'];
+
+        return app($driverClass);
     }
 }

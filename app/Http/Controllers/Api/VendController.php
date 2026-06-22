@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\VendService;
 use Illuminate\Http\Request;
 use App\Models\Transaction;
+use Illuminate\Validation\Rule;
 class VendController extends Controller
 {
 
@@ -17,14 +18,68 @@ class VendController extends Controller
     }
         public function vend(Request $request)
         {
-            $data = $request->validate([
-                'tracking_id' => 'required|string',
-                'client_id' => 'required|exists:clients,id',
-                'product_type' => 'required|string',
-                'network' => 'required|string',
-                'amount' => 'required|numeric',
-                'beneficiary' => 'nullable|string',
-            ]);
+
+
+           $data = $request->validate([
+
+    'tracking_id' => 'required|string',
+
+    'client_id' => 'required|exists:clients,id',
+
+    'product_type' => [
+        'required',
+        Rule::in([
+            'airtime',
+            'data',
+            'tv',
+        ]),
+    ],
+
+    'network' => 'required|string',
+
+    'beneficiary' => 'required|string',
+
+    'amount' => [
+        'required_if:product_type,airtime',
+        'numeric',
+    ],
+
+    'product_id' => [
+        'required_if:product_type,data',
+        'nullable',
+        'string',
+    ],
+
+    'package_code' => [
+        'required_if:product_type,tv',
+        'nullable',
+        'string',
+    ],
+
+    'period' => [
+        'required_if:product_type,tv',
+        'nullable',
+    ],
+
+    'has_addon' => [
+        'nullable',
+        'boolean',
+    ],
+
+    'addon_code' => [
+        'required_if:has_addon,1',
+        'nullable',
+        'string',
+    ],
+
+    'addon_name' => [
+        'required_if:has_addon,1',
+        'nullable',
+        'string',
+    ],
+]);
+
+
 
             return response()->json(
                 $this->service->handle($data)
@@ -45,25 +100,29 @@ class VendController extends Controller
                 ?? 'MTN'; // fallback for now
 
             // 🔄 normalize Oatek → internal
-            $normalized = [
-                'tracking_id' => $request->input('request_id'),
-                'client_id' => 1, // temporary
+           $normalized = [
 
-                'product_type' => $this->mapServiceCode(
-                    $request->input('serviceCode')
-                ),
+    'tracking_id' => $request->input('request_id'),
 
-                'network' => $network, // ✅ FIXED
+    'client_id' => 1,
 
-                'amount' => $request->input('amount'),
+    'product_type' => $this->mapServiceCode(
+        $request->input('serviceCode')
+    ),
 
-                'beneficiary' => $request->input('msisdn')
-                    ?? $request->input('meterNo')
-                    ?? $request->input('smartCardNo')
-                    ?? $request->input('account'),
+    'network' => $network,
 
-                'meta' => $request->all(),
-            ];
+    'amount' => $request->input('amount'),
+
+    'product_id' => $request->input('product_id'),
+
+    'beneficiary' => $request->input('msisdn')
+        ?? $request->input('meterNo')
+        ?? $request->input('smartCardNo')
+        ?? $request->input('account'),
+
+    'meta' => $request->all(),
+];
 
             $tx = $this->service->handle($normalized);
 
@@ -125,5 +184,5 @@ class VendController extends Controller
             $this->service->requery($transaction)
         );
     }
-    
+
 }

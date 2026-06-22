@@ -8,9 +8,25 @@ class TransactionRequestData
         public readonly string $tracking_id,
         public readonly string $client_id,
         public readonly string $product_type,
-        public readonly string $network,
-        public readonly ?string $beneficiary,
-        public readonly float $amount,
+
+        public readonly ?string $network = null,
+
+        public readonly ?string $beneficiary = null,
+
+        public readonly ?float $amount = null,
+
+        public readonly ?string $product_id = null,
+
+        public readonly ?string $package_code = null,
+
+        public readonly ?string $package_name = null,
+
+        public readonly ?int $period = null,
+
+        public readonly ?bool $has_addon = null,
+
+        public readonly ?string $addon_code = null,
+        public readonly ?string $addon_name = null,
         public readonly array $meta = [],
     ) {}
 }

@@ -2,6 +2,8 @@
 
 namespace App\Services\Vendors;
 
+use App\Data\Responses\NormalizedVendorResponse;
+
 abstract class BaseVendorDriver
 {
     protected function success(
@@ -9,30 +11,30 @@ abstract class BaseVendorDriver
         ?string $vendorReference = null,
         array $raw = [],
         string $code = '00'
-    ): array {
+    ): NormalizedVendorResponse {
 
-        return [
-            'status' => 'success',
-            'code' => $code,
-            'message' => $message,
-            'vendor_reference' => $vendorReference,
-            'raw' => $raw,
-        ];
+        return new NormalizedVendorResponse(
+            status: 'success',
+            code: $code,
+            message: $message,
+            vendorReference: $vendorReference,
+            raw: $raw,
+        );
     }
 
     protected function failed(
         string $message,
         string $code = 'FAILED',
         array $raw = []
-    ): array {
+    ): NormalizedVendorResponse {
 
-        return [
-            'status' => 'failed',
-            'code' => $code,
-            'message' => $message,
-            'vendor_reference' => null,
-            'raw' => $raw,
-        ];
+        return new NormalizedVendorResponse(
+            status: 'failed',
+            code: $code,
+            message: $message,
+            vendorReference: null,
+            raw: $raw,
+        );
     }
 
     protected function pending(
@@ -40,14 +42,14 @@ abstract class BaseVendorDriver
         ?string $vendorReference = null,
         array $raw = [],
         string $code = 'PENDING'
-    ): array {
+    ): NormalizedVendorResponse {
 
-        return [
-            'status' => 'pending',
-            'code' => $code,
-            'message' => $message,
-            'vendor_reference' => $vendorReference,
-            'raw' => $raw,
-        ];
+        return new NormalizedVendorResponse(
+            status: 'pending',
+            code: $code,
+            message: $message,
+            vendorReference: $vendorReference,
+            raw: $raw,
+        );
     }
 }

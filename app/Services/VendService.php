@@ -8,13 +8,22 @@ use Illuminate\Support\Str;
 //use App\Services\Vendors\MockVendorDriver;
 use App\Services\Vendors\VendorDriverResolver;
 use App\DataTransferObjects\TransactionRequestData;
+use App\Services\Retry\RetryExecutor;
+use App\Data\Responses\NormalizedVendorResponse;
+use Illuminate\Validation\ValidationException;
 
 class VendService
 {
 
+public function __construct(
+    private RetryExecutor $retryExecutor,
+    private BundleService $bundleService,
+    private TvValidationService $tvService,
+) {}
 
     public function handle(array $data): array
     {
+
 
             $data['product_type'] = strtolower(
             trim($data['product_type'])
@@ -23,12 +32,86 @@ class VendService
         $data['network'] = strtoupper(
             trim($data['network'])
         );
+
+        if (
+    $data['product_type'] === 'data'
+    && isset($data['product_id'])
+) {
+
+    $bundles = $this->bundleService
+        ->fetch($data['network']);
+
+          if (empty($bundles)) {
+
+        throw ValidationException::withMessages([
+            'network' => [
+                'No bundles returned for selected network.'
+            ],
+        ]);
+    }
+
+    $bundle = collect($bundles)
+        ->firstWhere(
+            'product_id',
+            $data['product_id']
+        );
+
+    if (! $bundle) {
+       throw ValidationException::withMessages([
+    'product_id' => [
+                'Selected bundle does not exist for this network.'
+            ],
+        ]);
+    }
+
+    $data['amount'] = $bundle['amount'];
+}
+
+if (
+    $data['product_type'] === 'tv'
+    && isset($data['package_code'])
+) {
+
+
+
+    $package = $this->tvService
+        ->findPackage(
+            $data['network'],
+            $data['beneficiary'],
+            $data['package_code'],
+
+        );
+
+     
+
+
+    $data['amount'] = $package['price']
+        ?? $package['amount']
+        ?? null;
+
+        $data['package_name'] = $package['name'] ?? null;
+
+
+
+
+    if (! $data['amount']) {
+
+        throw ValidationException::withMessages([
+            'package_code' => [
+                'Unable to determine package amount.'
+            ],
+        ]);
+    }
+}
+
+
         // 1. IDEMPOTENCY CHECK
         $existing = Transaction::where('tracking_id', $data['tracking_id'])->first();
 
         if ($existing) {
             return $this->formatResponse($existing);
         }
+
 
         // 2. RESOLVE ROUTING
        $routing = RoutingConfig::where(
@@ -40,11 +123,26 @@ class VendService
         $data['network']
     )
     ->where('is_active', true)
-    ->firstOrFail();
+    ->first();
+
+
+
+    if (! $routing) {
+
+    throw ValidationException::withMessages([
+        'routing' => [
+            sprintf(
+                'No active routing configuration found for %s on %s.',
+                $data['product_type'],
+                $data['network']
+            ),
+        ],
+    ]);
+}
+
 
         //$vendorId = $this->resolveVendor($routing);
-
-        if ($routing->mode === 'manual') {
+   if ($routing->mode === 'manual') {
             return $this->manualFlow($routing, $data);
         }
 
@@ -94,19 +192,19 @@ private function fallbackMessage(string $status): string
         };
     }
 
-    private function shouldRetry(array $response): bool
-        {
-            return in_array($response['code'] ?? null, [
-                'TIMEOUT',
-                'NETWORK_ERROR',
-                'UNKNOWN'
-            ]);
-        }
+            private function shouldRetry(
+                NormalizedVendorResponse $response
+            ): bool {
+
+                return $response->isRetryable();
+            }
 
 
         private function manualFlow($routing, array $data): array
         {
             $vendorId = $routing->primary_vendor_id;
+
+
 
             return $this->executeTransaction($vendorId, $data, false);
         }
@@ -160,16 +258,16 @@ private function fallbackMessage(string $status): string
                 $this->logEvent(
                     $transaction,
                     'vendor_response',
-                    $response['message'] ?? 'Vendor responded',
+                    $response->message() ?? 'Vendor responded',
                     [
-                        'status' => $response['status'] ?? null,
-                        'code' => $response['code'] ?? null,
+                        'status' => $response->status() ?? null,
+                        'code' => $response->code() ?? null,
                     ]
                 );
 
                 // 3. FAILOVER CONDITION
                 if (
-                    $response['status'] === 'failed' &&
+                    $response->status() === 'failed' &&
                     $routing->auto_failover_enabled &&
                     $routing->fallback_vendor_id
                 ) {
@@ -207,10 +305,10 @@ private function fallbackMessage(string $status): string
                     $this->logEvent(
                         $transaction,
                         'vendor_response',
-                        $response['message'] ?? 'Fallback vendor responded',
+                        $response->message() ?? 'Fallback vendor responded',
                         [
-                            'status' => $response['status'] ?? null,
-                            'code' => $response['code'] ?? null,
+                         'status' => $response->status(),
+                        'code' => $response->code(),
                         ]
                     );
 
@@ -220,37 +318,66 @@ private function fallbackMessage(string $status): string
 
                 $end = microtime(true);
 
+                 if ($response->status() === Transaction::STATUS_SUCCESS) {
+
+        $transaction->markSuccessful();
+
+    } elseif ($response->status() === Transaction::STATUS_FAILED) {
+
+        $transaction->markFailed();
+
+    } else {
+
+        $transaction->markPending();
+    }
+
                 // 4. Update transaction
                 $transaction->update([
-                    'status' => $response['status'],
-                    'vendor_reference' => $response['vendor_reference'] ?? null,
+
+                    'vendor_reference' => $response->vendorReference()?? null,
                     'response_time_ms' => ($end - $start) * 1000,
-                    'raw_vendor_response' => $response,
+                    'raw_vendor_response' => $response->toArray(),
+
                     'resolved_at' => now(),
+
                 ]);
 
                 return $this->formatResponse($transaction->fresh());
             }
 
-        private function executeTransaction(
+ private function executeTransaction(
     int $vendorId,
     array $data,
     bool $allowRetry
 ): array {
 
-    // CREATE TRANSACTION
-    $transaction = Transaction::create([
+
+try {
+
+    //code...
+      $transaction = Transaction::create([
         'ringo_reference' => Str::uuid(),
         'tracking_id' => $data['tracking_id'],
         'client_id' => $data['client_id'],
         'vendor_id' => $vendorId,
         'product_type' => $data['product_type'],
         'network' => $data['network'],
-        'beneficiary' => $data['beneficiary'] ?? null,
-        'amount' => $data['amount'],
-        'status' => 'pending',
+        'beneficiary' => $data['beneficiary'],
+       'amount' => $data['amount'],
+        'status' => Transaction::STATUS_PENDING,
         'raw_vendor_request' => $data,
     ]);
+
+} catch (\Throwable $e) {
+
+    dd([
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+    ]);
+}
+    // CREATE TRANSACTION
+
 
     // 🔥 EVENT: transaction created
     $this->logEvent(
@@ -260,20 +387,64 @@ private function fallbackMessage(string $status): string
     );
 
     $resolver = new VendorDriverResolver();
+
     $driver = $resolver->resolve($vendorId);
 
     $start = microtime(true);
 
-    $response = null;
+    $payload = $this->buildPayload($data);
 
-    if ($allowRetry) {
 
-        $maxAttempts = 3;
-        $attempt = 0;
+    try {
 
-        while ($attempt < $maxAttempts) {
+        if ($allowRetry) {
 
-            $attempt++;
+            $response = $this->retryExecutor->execute(
+
+                operation: function ($attempt) use (
+                    $driver,
+                    $payload,
+                    $transaction,
+                    $vendorId
+                ) {
+
+                    // 🔥 EVENT: vendor called
+                    $this->logEvent(
+                        $transaction,
+                        'vendor_called',
+                        'Calling vendor',
+                        [
+                            'vendor_id' => $vendorId,
+                            'attempt' => $attempt,
+                        ]
+                    );
+
+                    $response = $driver->vend($payload);
+
+                    // 🔥 EVENT: vendor response
+                    $this->logEvent(
+                        $transaction,
+                        'vendor_response',
+                        $response->message(),
+                        [
+                            'status' => $response->status(),
+                            'code' => $response->code(),
+                            'attempt' => $attempt,
+                        ]
+                    );
+
+                    return $response;
+                },
+
+                shouldRetry: function ($response) {
+
+                    return $this->shouldRetry($response);
+                },
+
+                maxRetries: 2
+            );
+
+        } else {
 
             // 🔥 EVENT: vendor called
             $this->logEvent(
@@ -282,151 +453,95 @@ private function fallbackMessage(string $status): string
                 'Calling vendor',
                 [
                     'vendor_id' => $vendorId,
-                    'attempt' => $attempt,
                 ]
             );
 
-            try {
-
-            $payload = $this->buildPayload($data);
-
-                $response = $driver->vend($payload);
-
-                // 🔥 EVENT: vendor response
-                $this->logEvent(
-                    $transaction,
-                    'vendor_response',
-                    $response['message'] ?? 'Vendor responded',
-                    [
-                        'status' => $response['status'] ?? null,
-                        'code' => $response['code'] ?? null,
-                        'attempt' => $attempt,
-                    ]
-                );
-
-                if ($response['status'] === 'success') {
-                    break;
-                }
-
-                if (!$this->shouldRetry($response)) {
-                    break;
-                }
-
-                // 🔥 EVENT: retry triggered
-                $this->logEvent(
-                    $transaction,
-                    'retry_attempted',
-                    'Retry triggered',
-                    [
-                        'attempt' => $attempt,
-                    ]
-                );
-
-            } catch (\Throwable $e) {
-
-                $response = [
-                    'status' => 'failed',
-                    'code' => 'TIMEOUT',
-                    'message' => $e->getMessage(),
-                ];
-
-                // 🔥 EVENT: vendor exception
-                $this->logEvent(
-                    $transaction,
-                    'vendor_exception',
-                    $e->getMessage(),
-                    [
-                        'attempt' => $attempt,
-                    ]
-                );
-            }
-
-            usleep(200000);
-        }
-
-    } else {
-
-        // ✅ MANUAL MODE → single call only
-
-        // 🔥 EVENT: vendor called
-        $this->logEvent(
-            $transaction,
-            'vendor_called',
-            'Calling vendor',
-            [
-                'vendor_id' => $vendorId,
-            ]
-        );
-
-        try {
-
-            $payload = $this->buildPayload($data);
-
-                $response = $driver->vend($payload);
+            $response = $driver->vend($payload);
 
             // 🔥 EVENT: vendor response
             $this->logEvent(
                 $transaction,
                 'vendor_response',
-                $response['message'] ?? 'Vendor responded',
+                $response->message(),
                 [
-                    'status' => $response['status'] ?? null,
-                    'code' => $response['code'] ?? null,
+                    'status' => $response->status(),
+                    'code' => $response->code(),
                 ]
             );
-
-        } catch (\Throwable $e) {
-
-            $response = [
-                'status' => 'failed',
-                'code' => 'TIMEOUT',
-                'message' => $e->getMessage(),
-            ];
-
-            // 🔥 EVENT: vendor exception
-            $this->logEvent(
-                $transaction,
-                'vendor_exception',
-                $e->getMessage()
-            );
         }
+
+    } catch (\Throwable $e) {
+
+        // 🔥 EVENT: vendor exception
+        $this->logEvent(
+            $transaction,
+            'vendor_exception',
+            $e->getMessage()
+        );
+
+        $response = new NormalizedVendorResponse(
+            status: Transaction::STATUS_FAILED,
+            code: 'TIMEOUT',
+            message: $e->getMessage(),
+        );
     }
 
     $end = microtime(true);
 
+    // ✅ CANONICAL STATE TRANSITION
+    if ($response->status() === Transaction::STATUS_SUCCESS) {
+
+        $transaction->markSuccessful();
+
+    } elseif ($response->status() === Transaction::STATUS_FAILED) {
+
+        $transaction->markFailed();
+
+    } else {
+
+        $transaction->markPending();
+    }
+
+    // ✅ EXECUTION METADATA
     $transaction->update([
-        'status' => $response['status'],
-        'vendor_reference' => $response['vendor_reference'] ?? null,
+        'vendor_reference' => $response->vendorReference(),
+
         'response_time_ms' => ($end - $start) * 1000,
-        'raw_vendor_response' => $response,
-        'resolved_at' => now(),
+
+        'raw_vendor_response' => $response->toArray(),
+
+
+    'resolved_at' => now(),
     ]);
 
-    return $this->formatResponse($transaction->fresh());
+    return $this->formatResponse(
+        $transaction->fresh()
+    );
 }
 
-        private function executeRaw(
+  protected function executeRaw(
     Transaction $transaction,
     int $vendorId,
     array $data,
-    bool $allowRetry
-): array {
+    bool $allowRetry = true
+): NormalizedVendorResponse {
 
     $resolver = new VendorDriverResolver();
+
     $driver = $resolver->resolve($vendorId);
 
-    $response = null;
+    $payload = $this->buildPayload($data);
 
     if ($allowRetry) {
 
-        $maxAttempts = 3;
-        $attempt = 0;
+        return $this->retryExecutor->execute(
 
-        while ($attempt < $maxAttempts) {
-
-            $attempt++;
-
-            try {
+            operation: function ($attempt) use (
+                $driver,
+                $payload,
+                $transaction,
+                $vendorId
+            ) {
 
                 // 🔥 EVENT: vendor called
                 $this->logEvent(
@@ -439,110 +554,79 @@ private function fallbackMessage(string $status): string
                     ]
                 );
 
-              $payload = $this->buildPayload($data);
                 $response = $driver->vend($payload);
+                /** @var \App\Data\Responses\NormalizedVendorResponse $response */
 
                 // 🔥 EVENT: vendor response
                 $this->logEvent(
                     $transaction,
                     'vendor_response',
-                    $response['message'] ?? 'Vendor responded',
+                    $response->message()?? 'Vendor responded',
                     [
-                        'status' => $response['status'] ?? null,
-                        'code' => $response['code'] ?? null,
+                        'status' => $response->status()?? null,
+                        'code' => $response->code() ?? null,
                         'attempt' => $attempt,
                     ]
                 );
 
-                // SUCCESS → stop
-                if ($response['status'] === 'success') {
-                    break;
-                }
+                return $response;
+            },
 
-                // NOT RETRYABLE → stop
-                if (!$this->shouldRetry($response)) {
-                    break;
-                }
+            shouldRetry: function ($response) {
 
-                // 🔥 EVENT: retry triggered
-                $this->logEvent(
-                    $transaction,
-                    'retry_attempted',
-                    'Retry triggered',
-                    [
-                        'attempt' => $attempt,
-                    ]
-                );
+                return $this->shouldRetry($response);
+            },
 
-            } catch (\Throwable $e) {
-
-                $response = [
-                    'status' => 'failed',
-                    'code' => 'TIMEOUT',
-                    'message' => $e->getMessage(),
-                ];
-
-                // 🔥 EVENT: vendor exception
-                $this->logEvent(
-                    $transaction,
-                    'vendor_exception',
-                    $e->getMessage(),
-                    [
-                        'attempt' => $attempt,
-                    ]
-                );
-            }
-
-            usleep(200000);
-        }
-
-    } else {
-
-        try {
-
-            // 🔥 EVENT: vendor called
-            $this->logEvent(
-                $transaction,
-                'vendor_called',
-                'Calling vendor',
-                [
-                    'vendor_id' => $vendorId,
-                ]
-            );
-
-            $response = $driver->vend($data);
-
-            // 🔥 EVENT: vendor response
-            $this->logEvent(
-                $transaction,
-                'vendor_response',
-                $response['message'] ?? 'Vendor responded',
-                [
-                    'status' => $response['status'] ?? null,
-                    'code' => $response['code'] ?? null,
-                ]
-            );
-
-        } catch (\Throwable $e) {
-
-            $response = [
-                'status' => 'failed',
-                'code' => 'TIMEOUT',
-                'message' => $e->getMessage(),
-            ];
-
-            // 🔥 EVENT: vendor exception
-            $this->logEvent(
-                $transaction,
-                'vendor_exception',
-                $e->getMessage()
-            );
-        }
+            maxRetries: 2
+        );
     }
 
-    return $response;
-}
+    // ✅ MANUAL MODE → single attempt only
 
+    try {
+
+        // 🔥 EVENT: vendor called
+        $this->logEvent(
+            $transaction,
+            'vendor_called',
+            'Calling vendor',
+            [
+                'vendor_id' => $vendorId,
+            ]
+        );
+
+        $response = $driver->vend($payload);
+        /** @var \App\Data\Responses\NormalizedVendorResponse $response */
+
+        // 🔥 EVENT: vendor response
+        $this->logEvent(
+            $transaction,
+            'vendor_response',
+           $response->message() ?? 'Vendor responded',
+            [
+                'status' => $response->status() ?? null,
+                'code' => $response->code() ?? null,
+            ]
+        );
+
+        return $response;
+
+    } catch (\Throwable $e) {
+
+        // 🔥 EVENT: vendor exception
+        $this->logEvent(
+            $transaction,
+            'vendor_exception',
+            $e->getMessage()
+        );
+
+        return new NormalizedVendorResponse(
+            status: 'failed',
+            code: 'TIMEOUT',
+            message: $e->getMessage(),
+        );
+    }
+}
  public function requery(Transaction $transaction): array
 {
     // only pending transactions should be requeried
@@ -554,10 +638,11 @@ private function fallbackMessage(string $status): string
             'Transaction is not pending'
         );
 
-        return [
-            'status' => 'failed',
-            'message' => 'Transaction is not pending',
-        ];
+        $response = new NormalizedVendorResponse(
+            status: 'failed',
+            code: 'INVALID_STATE',
+            message: 'Transaction is not pending',
+        );
     }
 
     // 🔥 EVENT: requery started
@@ -579,20 +664,20 @@ private function fallbackMessage(string $status): string
         $this->logEvent(
             $transaction,
             'requery_response',
-            $response['message'] ?? 'Requery completed',
+            $response->message() ?? 'Requery completed',
             [
-                'status' => $response['status'] ?? null,
-                'code' => $response['code'] ?? null,
+                'status' => $response->status() ?? null,
+                'code' => $response->code() ?? null,
             ]
         );
 
     } catch (\Throwable $e) {
 
-        $response = [
-            'status' => 'failed',
-            'code' => 'REQUERY_ERROR',
-            'message' => $e->getMessage(),
-        ];
+        $response = new NormalizedVendorResponse(
+            status: 'failed',
+            code: 'REQUERY_ERROR',
+            message: $e->getMessage(),
+        );
 
         // 🔥 EVENT: requery exception
         $this->logEvent(
@@ -602,14 +687,31 @@ private function fallbackMessage(string $status): string
         );
     }
 
+     if ($response->status() === Transaction::STATUS_SUCCESS) {
+
+        $transaction->markSuccessful();
+
+    } elseif ($response->status() === Transaction::STATUS_FAILED) {
+
+        $transaction->markFailed();
+
+    } else {
+
+        $transaction->markPending();
+    }
+
     // update transaction
-    $transaction->update([
-        'status' => $response['status'],
-        'vendor_reference' => $response['vendor_reference']
-            ?? $transaction->vendor_reference,
-        'raw_vendor_response' => $response,
-        'resolved_at' => now(),
-    ]);
+   $transaction->update([
+
+    'vendor_reference' => $response->vendorReference()
+        ?? $transaction->vendor_reference,
+
+    'raw_vendor_response' => $response->toArray(),
+
+
+
+    'resolved_at' => now(),
+]);
 
     // 🔥 EVENT: requery resolved
     $this->logEvent(
@@ -617,7 +719,7 @@ private function fallbackMessage(string $status): string
         'requery_resolved',
         'Transaction updated after requery',
         [
-            'final_status' => $response['status'] ?? null,
+            'final_status' => $response->status() ?? null,
         ]
     );
 
@@ -638,18 +740,39 @@ private function fallbackMessage(string $status): string
         }
 
 
-        private function buildPayload(
+private function buildPayload(
     array $data
 ): TransactionRequestData {
 
     return new TransactionRequestData(
-        $data['tracking_id'],
-        $data['client_id'],
-        $data['product_type'],
-        $data['network'],
-        $data['beneficiary'] ?? null,
-        $data['amount'],
-        $data['meta'] ?? [],
+
+        tracking_id: $data['tracking_id'],
+
+        client_id: $data['client_id'],
+
+        product_type: $data['product_type'],
+
+        network: $data['network'] ?? null,
+
+        beneficiary: $data['beneficiary'] ?? null,
+
+        amount: $data['amount'] ?? null,
+
+        product_id: $data['product_id'] ?? null,
+
+        package_code: $data['package_code'] ?? null,
+
+        package_name: $data['package_name'] ?? null,
+
+        period: $data['period'] ?? null,
+
+        has_addon: $data['has_addon'] ?? false,
+
+        addon_code: $data['addon_code'] ?? null,
+
+        addon_name: $data['addon_name'] ?? null,
+
+        meta: $data['meta'] ?? [],
     );
 }
 

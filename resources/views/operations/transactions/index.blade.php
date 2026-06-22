@@ -27,29 +27,29 @@
 
     <x-operations.stat-card
         title="Total Today"
-        value="12,480"
+        :value="number_format($metrics['totalToday'])"
     />
 
     <x-operations.stat-card
         title="Successful"
-        value="11,920"
+        :value="number_format($metrics['successfulToday'])"
         valueClass="text-emerald-600"
     />
 
     <x-operations.stat-card
         title="Failed"
-        value="320"
+        :value="number_format($metrics['failedToday'])"
         valueClass="text-rose-600"
     />
 
     <x-operations.stat-card
         title="Pending"
-        value="180"
+        :value="number_format($metrics['pendingToday'])"
         valueClass="text-amber-600"
     />
 
     <x-operations.stat-card
-        title="Retries"
+        title="Requeries"
         value="42"
         valueClass="text-violet-600"
     />
@@ -74,29 +74,81 @@
         />
 
             <x-operations.filter-input
+                name="customer"
                 label="Customer"
                 placeholder="080..."
+                :value="request('customer')"
             />
 
-            <x-operations.filter-select label="Status">
-                <option>All</option>
-                <option>Success</option>
-                <option>Failed</option>
-                <option>Pending</option>
+           <x-operations.filter-select
+    name="status"
+    label="Status"
+>
+            <option value="">All</option>
+
+                    <option
+                    value="success"
+                    @selected(request('status') === 'success')
+                >
+                    Success
+                </option>
+
+                <option
+                    value="failed"
+                    @selected(request('status') === 'failed')
+                >
+                    Failed
+                </option>
+
+                <option
+                    value="pending"
+                    @selected(request('status') === 'pending')
+                >
+                    Pending
+                </option>
             </x-operations.filter-select>
 
-            <x-operations.filter-select label="Vendor">
-                <option>All</option>
-                <option>Oatek</option>
-                <option>SMEPlug</option>
-            </x-operations.filter-select>
+<x-operations.filter-select
+    name="vendor"
+    label="Vendor"
+>
+    <option value="">All</option>
 
-            <x-operations.filter-select label="Service">
-                <option>All</option>
-                <option>Airtime</option>
-                <option>Data</option>
-            </x-operations.filter-select>
+    
 
+    @foreach ($vendors as $vendor)
+
+        <option
+            value="{{ $vendor->name }}"
+            @selected(request('vendor') === $vendor->name)
+        >
+            {{ $vendor->name }}
+        </option>
+
+    @endforeach
+
+</x-operations.filter-select>
+
+<x-operations.filter-select
+    name="service"
+    label="Service"
+>
+    <option value="">All</option>
+
+    <option
+        value="airtime"
+        @selected(request('service') === 'airtime')
+    >
+        Airtime
+    </option>
+
+    <option
+        value="data"
+        @selected(request('service') === 'data')
+    >
+        Data
+    </option>
+</x-operations.filter-select>
             <div>
 
                 <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -104,9 +156,11 @@
                 </label>
 
                 <input
-                    type="date"
-                    class="w-full rounded-lg border-slate-300 text-sm focus:border-slate-400 focus:ring-slate-400"
-                >
+    type="date"
+    name="date"
+    value="{{ request('date') }}"
+    class="w-full rounded-lg border-slate-300 text-sm focus:border-slate-400 focus:ring-slate-400"
+>
 
             </div>
 

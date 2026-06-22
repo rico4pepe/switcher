@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    'oatek' => [
+
+    'base_url' => env('OATEK_BASE_URL'),
+
+    'email' => env('OATEK_EMAIL'),
+
+    'password' => env('OATEK_PASSWORD'),
+     'requery_url' => env('OATEK_REQUERY_URL'),
+],
+
 ];

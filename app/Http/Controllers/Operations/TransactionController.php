@@ -9,6 +9,8 @@ use App\Actions\Transactions\GetTransactionsAction;
 use App\Models\Transaction;
 use App\Services\VendService;
 use Illuminate\Http\RedirectResponse;
+use App\Models\Vendor;
+
 
 class TransactionController extends Controller
 {
@@ -17,11 +19,20 @@ class TransactionController extends Controller
         TransactionFilter $filter
     ): View {
 
-        $transactions = $getTransactionsAction->execute($filter);
+        $vendors = Vendor::query()
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
 
-        return view('operations.transactions.index', [
-            'transactions' => $transactions,
-        ]);
+       $data = $getTransactionsAction->execute($filter);
+
+       return view('operations.transactions.index', [
+
+    'transactions' => $data['transactions'],
+
+    'metrics' => $data['metrics'],
+     'vendors' => $vendors,
+]);
     }
 
 

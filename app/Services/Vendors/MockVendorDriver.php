@@ -1,44 +1,27 @@
 <?php
 
 namespace App\Services\Vendors;
+use App\DataTransferObjects\TransactionRequestData;
+use App\Data\Responses\NormalizedVendorResponse;
 
 use App\Models\Transaction;
  class MockVendorDriver extends BaseVendorDriver implements VendorInterface
 {
 
 
-   public function vend(array $payload): array
+  public function vend(
+    TransactionRequestData $payload
+): NormalizedVendorResponse
 {
     $mode = request()->header('X-MOCK-MODE', 'success');
 
-    return match ($mode) {
-        'fail' => [
-            'status' => 'failed',
-            'code' => '99',
-            'message' => 'Vendor failure'
-        ],
-
-        'pending' => [
-            'status' => 'pending',
-            'code' => '02',
-            'message' => 'Processing'
-        ],
-
-        'timeout' => $this->simulateTimeout(),
-
-        'success' => [
-            'status' => 'success',
-            'code' => '00',
-            'vendor_reference' => uniqid('VND_'),
-            'message' => 'Success'
-        ],
-
-        default => [
-            'status' => 'failed',
-            'code' => '98',
-            'message' => 'Unknown mock mode'
-        ],
-    };
+  return new NormalizedVendorResponse(
+    status: 'success',
+    code: '00',
+    message: 'Success',
+    vendorReference: uniqid('VND_'),
+    raw: []
+);
 }
 
 private function simulateTimeout(): array
@@ -47,13 +30,114 @@ private function simulateTimeout(): array
     throw new \Exception('Connection timeout');
 }
 
-public function requery(Transaction $transaction): array
+public function requery(
+    Transaction $transaction
+): NormalizedVendorResponse
 {
-      return [
-        'status' => 'success',
-        'code' => '00',
-        'vendor_reference' => $transaction->vendor_reference,
-        'message' => 'Requery successful',
+   return new NormalizedVendorResponse(
+    status: 'success',
+    code: '00',
+    message: 'Requery successful',
+    vendorReference: $transaction->vendor_reference,
+    raw: []
+);
+}
+
+public function fetchBundles(
+    string $network
+): array
+{
+    return [
+
+        [
+            'network' => strtoupper($network),
+            'product_id' => 'MOCK_1',
+            'allowance' => '1GB',
+            'amount' => 500,
+            'validity' => '30 Days',
+            'category' => 'daily',
+        ],
+
+        [
+            'network' => strtoupper($network),
+            'product_id' => 'MOCK_2',
+            'allowance' => '2GB',
+            'amount' => 1000,
+            'validity' => '30 Days',
+            'category' => 'daily',
+        ],
+    ];
+}
+
+public function validateTv(
+    string $smartCardNo,
+    string $provider
+): array
+{
+    throw new \Exception(
+        'TV validation not implemented'
+    );
+}
+
+public function getTvSubscriptionStatus(
+    string $smartCardNo,
+    string $provider
+): array
+{
+    return [
+
+        'type' => strtoupper($provider),
+
+        'message' => 'successful',
+
+        'status' => '200',
+
+        'amount' => 8883,
+
+        'dueDate' => now()
+            ->addMonth()
+            ->toDateString(),
+    ];
+}
+
+public function fetchTvAddons(
+    string $packageCode
+): array
+{
+    return [
+
+        'message' => 'Successful',
+
+        'status' => '200',
+
+        'product' => [
+
+            [
+                'name' => 'French Plus',
+                'code' => 'FRN15E36',
+                'price' => 9300,
+                'period' => 1,
+            ],
+        ],
+    ];
+}
+
+public function checkTvBoxOffice(
+    string $smartCardNo,
+    string $provider
+): array
+{
+    return [
+
+        'smartCardNo' => $smartCardNo,
+
+        'type' => strtoupper($provider),
+
+        'message' => 'successful',
+
+        'status' => '200',
+
+        'isBoxOffice' => true,
     ];
 }
 
