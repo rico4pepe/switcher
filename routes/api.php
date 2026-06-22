@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\VendController;
 use App\Http\Controllers\Api\BundleController;
 use App\Http\Controllers\Api\TvController;
+use App\Http\Controllers\Api\ElectricityController;
 
 
 Route::post('/vend', [VendController::class, 'vend']);
@@ -30,4 +31,9 @@ Route::post(
 Route::post(
     '/tv/addons',
     [TvController::class, 'addons']
+);
+
+Route::post(
+    '/electricity/validate',
+    [ElectricityController::class, 'validateElectricity']
 );

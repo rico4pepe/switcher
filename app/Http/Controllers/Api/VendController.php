@@ -32,6 +32,7 @@ class VendController extends Controller
             'airtime',
             'data',
             'tv',
+            'electricity',
         ]),
     ],
 
@@ -43,6 +44,18 @@ class VendController extends Controller
         'required_if:product_type,airtime',
         'numeric',
     ],
+
+    'phone_number' => [
+    'required_if:product_type,electricity',
+    'nullable',
+    'string',
+],
+
+'meter_type' => [
+    'required_if:product_type,electricity',
+    'nullable',
+    'string',
+],
 
     'product_id' => [
         'required_if:product_type,data',

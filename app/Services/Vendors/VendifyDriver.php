@@ -75,4 +75,16 @@ public function checkTvBoxOffice(
         'TV box office check not implemented'
     );
 }
+
+
+            public function validateElectricity(
+    string $meterNo,
+    string $disco,
+    string $type
+): array
+{
+    throw new \Exception(
+        'Electricity  has not been implemented'
+    );
+}
 }

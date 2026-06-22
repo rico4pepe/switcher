@@ -82,7 +82,7 @@ if (
 
         );
 
-     
+
 
 
     $data['amount'] = $package['price']
@@ -632,17 +632,19 @@ try {
     // only pending transactions should be requeried
     if ($transaction->status !== 'pending') {
 
-        $this->logEvent(
-            $transaction,
-            'requery_rejected',
-            'Transaction is not pending'
-        );
+         $this->logEvent(
+        $transaction,
+        'requery_rejected',
+        'Transaction is not pending',
+    );
 
         $response = new NormalizedVendorResponse(
             status: 'failed',
             code: 'INVALID_STATE',
             message: 'Transaction is not pending',
         );
+
+
     }
 
     // 🔥 EVENT: requery started
@@ -771,6 +773,8 @@ private function buildPayload(
         addon_code: $data['addon_code'] ?? null,
 
         addon_name: $data['addon_name'] ?? null,
+        meter_type: $data['meter_type'] ?? null,
+        phone_number: $data['phone_number'] ?? null,
 
         meta: $data['meta'] ?? [],
     );

@@ -40,5 +40,11 @@ public function checkTvBoxOffice(
     string $provider
 ): array;
 
+public function validateElectricity(
+    string $meterNo,
+    string $disco,
+    string $type
+): array;
+
 
 }

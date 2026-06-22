@@ -27,6 +27,8 @@ class TransactionRequestData
 
         public readonly ?string $addon_code = null,
         public readonly ?string $addon_name = null,
+        public readonly ?string $meter_type = null,
+        public readonly ?string $phone_number = null,
         public readonly array $meta = [],
     ) {}
 }

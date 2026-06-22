@@ -141,4 +141,15 @@ public function checkTvBoxOffice(
     ];
 }
 
+            public function validateElectricity(
+    string $meterNo,
+    string $disco,
+    string $type
+): array
+{
+    throw new \Exception(
+        'Electricity  has not been implemented'
+    );
+}
+
 }

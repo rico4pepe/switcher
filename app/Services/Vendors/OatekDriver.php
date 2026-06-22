@@ -19,18 +19,18 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
      private string $requeryUrl;
 
-     public function __construct()
-    {
-        $this->baseUrl = (string)  config('services.oatek.base_url');
+            public function __construct()
+            {
+                $this->baseUrl = (string)  config('services.oatek.base_url');
 
-        $this->email = (string)  config('services.oatek.email');
+                $this->email = (string)  config('services.oatek.email');
 
-        $this->password = (string)  config('services.oatek.password');
+                $this->password = (string)  config('services.oatek.password');
 
-        $this->requeryUrl = (string)  config('services.oatek.requery_url');
+                $this->requeryUrl = (string)  config('services.oatek.requery_url');
 
 
-    }
+            }
                 public function vend(
                 TransactionRequestData $payload
             ): NormalizedVendorResponse {
@@ -50,6 +50,9 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
         $payload
     ),
 
+    'electricity' => $this->buildElectricityPayload(
+    $payload
+),
     default => throw ValidationException::withMessages([
         'product_type' => [
             sprintf(
@@ -73,12 +76,7 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
                 $vendorPayload
             );
 
-            \Log::info('TV VENDOR REQUEST', $vendorPayload);
 
-\Log::info('TV VENDOR RESPONSE BODY', [
-    'status' => $response->status(),
-    'body' => $response->body(),
-]);
 
 
                 $data = $response->json();
@@ -103,420 +101,526 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
                 );
             }
 
-   public function requery(
-    Transaction $transaction
-): NormalizedVendorResponse {
+            public function requery(
+                Transaction $transaction
+            ): NormalizedVendorResponse {
 
-    $payload = [
+                $payload = [
 
-        'request_id' => $transaction->tracking_id,
-    ];
+                    'request_id' => $transaction->tracking_id,
+                ];
 
+                $response = Http::withHeaders([
+
+                    'email' => $this->email,
+
+                    'password' => $this->password,
+
+                ])->asJson()->post(
+
+                    $this->requeryUrl,
+
+                    $payload
+                );
+
+                $data = $response->json();
+
+                return new NormalizedVendorResponse(
+
+                    status: $this->mapStatus(
+                        $data['status'] ?? '500'
+                    ),
+
+                    code: (string) ($data['status'] ?? '500'),
+
+                    message: $data['message']
+                        ?? 'Unknown requery response',
+
+                    vendorReference: $data['ext_ref']
+                        ?? $data['transId']
+                        ?? null,
+
+                    raw: $data,
+                );
+            }
+
+    private function mapStatus(
+            string $vendorStatus
+                ): string {
+
+                    return match ($vendorStatus) {
+
+                        '200' => 'success',
+
+                        '400', '500' => 'pending',
+
+                        default => 'failed',
+                    };
+                }
+
+                private function resolveProductId(
+            string $network
+                ): string {
+
+                    return match (strtolower($network)) {
+
+                        'mtn' => 'MFIN-5-OR',
+                        'airtel' => 'MFIN-1-OR',
+
+                            'glo' => 'MFIN-6-OR',
+
+                            '9mobile' => 'MFIN-2-OR',
+
+                        default => throw new \Exception(
+                            'Unsupported network'
+                        ),
+                    };
+                }
+
+                private function buildAirtimePayload(
+                    TransactionRequestData $payload
+                ): array {
+
+                    return [
+
+                        'serviceCode' => 'VAR',
+
+                        'request_id' => $payload->tracking_id,
+
+                        'msisdn' => $payload->beneficiary,
+
+                        'product_id' => $this->resolveProductId(
+                            $payload->network
+                        ),
+
+                        'amount' => $payload->amount,
+                    ];
+                }
+
+                private function buildDataPayload(
+            TransactionRequestData $payload
+        ): array {
+
+        if (! $payload->product_id) {
+
+                throw ValidationException::withMessages([
+                    'product_id' => [
+                        'Product ID is required for data vending.'
+                    ],
+                ]);
+            }
+
+            if (! $payload->beneficiary) {
+
+                throw ValidationException::withMessages([
+                    'beneficiary' => [
+                        'Beneficiary is required for data vending.'
+                    ],
+                ]);
+            }
+
+
+            return [
+
+                'serviceCode' => 'ADA',
+
+                'product_id' => $payload->product_id,
+
+                'request_id' => $payload->tracking_id,
+
+                'msisdn' => $payload->beneficiary,
+            ];
+        }
+
+
+                public function fetchBundles(
+                        string $network
+                    ): array {
+
+                        $response = Http::withHeaders([
+                            'email' => $this->email,
+                            'password' => $this->password,
+                        ])->post(
+                            $this->baseUrl . '/index.php',
+                            [
+                                'serviceCode' => 'DTA',
+                                'network' => strtolower($network),
+                            ]
+                        );
+
+                        return $this->normalizeBundles(
+                            $response->json()
+                        );
+                    }
+
+            private function normalizeBundles(
+                array $bundles
+            ): array {
+
+                return collect($bundles)
+
+                    ->map(function ($bundle) {
+
+                        return [
+
+                            'network' => strtoupper(
+                                $bundle['network'] ?? ''
+                            ),
+
+                            'product_id' => $bundle['product_id'] ?? null,
+
+                            'allowance' => $bundle['allowance'] ?? null,
+
+                            'amount' => (float) (
+                                $bundle['price'] ?? 0
+                            ),
+
+                            'validity' => $bundle['validity'] ?? null,
+
+                            'category' => $bundle['category'] ?? null,
+                        ];
+                    })
+
+                    ->values()
+
+                    ->toArray();
+            }
+
+            public function validateTv(
+                string $smartCardNo,
+                string $provider
+            ): array
+            {
+
+                if (empty($smartCardNo)) {
+
+                throw ValidationException::withMessages([
+                    'smart_card_no' => [
+                        'Smart card number is required.'
+                    ],
+                ]);
+            }
+
+            if (empty($provider)) {
+
+                throw ValidationException::withMessages([
+                    'provider' => [
+                        'TV provider is required.'
+                    ],
+                ]);
+            }
+                $response = Http::withHeaders([
+
+                    'email' => $this->email,
+
+                    'password' => $this->password,
+
+                ])->post(
+
+                    $this->baseUrl . '/index.php',
+
+                    [
+                        'serviceCode' => 'V-TV',
+                        'smartCardNo' => $smartCardNo,
+                        'type' => strtoupper($provider),
+                    ]
+                );
+
+                return $response->json();
+            }
+
+            public function getTvSubscriptionStatus(
+                string $smartCardNo,
+                string $provider
+            ): array
+            {
+                if (empty($smartCardNo)) {
+
+                    throw ValidationException::withMessages([
+                        'smart_card_no' => [
+                            'Smart card number is required.'
+                        ],
+                    ]);
+                }
+
+                if (empty($provider)) {
+
+                    throw ValidationException::withMessages([
+                        'provider' => [
+                            'TV provider is required.'
+                        ],
+                    ]);
+                }
+
+                $response = Http::withHeaders([
+
+                    'email' => $this->email,
+
+                    'password' => $this->password,
+
+                ])->post(
+
+                    $this->baseUrl . '/index.php',
+
+                    [
+                        'serviceCode' => 'MULTICHOICE',
+
+                        'type' => strtoupper($provider),
+
+                        'action' => 'GET_DUE_DATE_AMOUNT',
+
+                        'smartCardNo' => $smartCardNo,
+                    ]
+                );
+
+                return $response->json();
+            }
+            public function fetchTvAddons(
+                string $packageCode
+            ): array
+            {
+                //  dd([
+                //     'method' => 'fetchTvAddons',
+                //     'packageCode' => $packageCode,
+                // ]);
+                if (empty($packageCode)) {
+
+                    throw ValidationException::withMessages([
+                        'package_code' => [
+                            'Package code is required.'
+                        ],
+                    ]);
+                }
+
+                $response = Http::withHeaders([
+
+                    'email' => $this->email,
+
+                    'password' => $this->password,
+
+                ])->post(
+
+                    $this->baseUrl . '/index.php',
+
+                    [
+                        'serviceCode' => 'MULTICHOICE',
+
+                        'action' => 'GET_ADDONS',
+
+                        'code' => $packageCode,
+                    ]
+                );
+
+                return $response->json();
+            }
+
+            public function checkTvBoxOffice(
+                string $smartCardNo,
+                string $provider
+            ): array
+            {
+                if (empty($smartCardNo)) {
+
+                    throw ValidationException::withMessages([
+                        'smart_card_no' => [
+                            'Smart card number is required.'
+                        ],
+                    ]);
+                }
+
+                if (empty($provider)) {
+
+                    throw ValidationException::withMessages([
+                        'provider' => [
+                            'TV provider is required.'
+                        ],
+                    ]);
+                }
+
+                $response = Http::withHeaders([
+
+                    'email' => $this->email,
+
+                    'password' => $this->password,
+
+                ])->post(
+
+                    $this->baseUrl . '/index.php',
+
+                    [
+                        'serviceCode' => 'MULTICHOICE',
+
+                        'type' => strtoupper($provider),
+
+                        'action' => 'CHECK_BOX_OFFICE',
+
+                        'smartCardNo' => $smartCardNo,
+                    ]
+                );
+
+                return $response->json();
+            }
+
+
+
+            private function buildTvPayload(
+                TransactionRequestData $payload
+            ): array {
+
+                if (! $payload->beneficiary) {
+                    throw ValidationException::withMessages([
+                        'beneficiary' => ['Smart card number is required.'],
+                    ]);
+                }
+
+                if (! $payload->network) {
+                    throw ValidationException::withMessages([
+                        'network' => ['TV provider is required.'],
+                    ]);
+                }
+
+                if (! $payload->package_code) {
+                    throw ValidationException::withMessages([
+                        'package_code' => ['Package code is required.'],
+                    ]);
+                }
+
+                if (! $payload->period) {
+                    throw ValidationException::withMessages([
+                        'period' => ['Subscription period is required.'],
+                    ]);
+                }
+
+                $request = [
+                    'serviceCode' => 'P-TV',
+                    'smartCardNo' => $payload->beneficiary,
+                    'name' => $payload->package_name,
+                    'type' => strtoupper($payload->network),
+                    'code' => $payload->package_code,
+                    'period' => (string) $payload->period,
+                    'request_id' => $payload->tracking_id,
+                    'hasAddon' => $payload->has_addon ? 'True' : 'False',
+                ];
+
+                if ($payload->has_addon) {
+
+                    if (! $payload->addon_code) {
+                        throw ValidationException::withMessages([
+                            'addon_code' => ['Addon code is required.'],
+                        ]);
+                    }
+
+                    $request['addondetails'] = [
+                        'name' => $payload->addon_name,
+                        'addoncode' => $payload->addon_code,
+                    ];
+                }
+
+                return $request;
+            }
+
+            public function validateElectricity(
+    string $meterNo,
+    string $disco,
+    string $type
+): array
+{
     $response = Http::withHeaders([
 
         'email' => $this->email,
 
         'password' => $this->password,
 
-    ])->asJson()->post(
+    ])->post(
 
-        $this->requeryUrl,
+        $this->baseUrl . '/index.php',
 
-        $payload
+        [
+
+            'serviceCode' => 'V-ELECT',
+
+            'disco' => strtoupper($disco),
+
+            'meterNo' => $meterNo,
+
+            'type' => strtoupper($type),
+        ]
     );
 
-    $data = $response->json();
-
-    return new NormalizedVendorResponse(
-
-        status: $this->mapStatus(
-            $data['status'] ?? '500'
-        ),
-
-        code: (string) ($data['status'] ?? '500'),
-
-        message: $data['message']
-            ?? 'Unknown requery response',
-
-        vendorReference: $data['ext_ref']
-            ?? $data['transId']
-            ?? null,
-
-        raw: $data,
-    );
+    return $response->json();
 }
 
-    private function mapStatus(
-    string $vendorStatus
-        ): string {
 
-            return match ($vendorStatus) {
-
-                '200' => 'success',
-
-                '400', '500' => 'pending',
-
-                default => 'failed',
-            };
-        }
-
-        private function resolveProductId(
-    string $network
-        ): string {
-
-            return match (strtolower($network)) {
-
-                'mtn' => 'MFIN-5-OR',
-                 'airtel' => 'MFIN-1-OR',
-
-                    'glo' => 'MFIN-6-OR',
-
-                    '9mobile' => 'MFIN-2-OR',
-
-                default => throw new \Exception(
-                    'Unsupported network'
-                ),
-            };
-        }
-
-        private function buildAirtimePayload(
-            TransactionRequestData $payload
-        ): array {
-
-            return [
-
-                'serviceCode' => 'VAR',
-
-                'request_id' => $payload->tracking_id,
-
-                'msisdn' => $payload->beneficiary,
-
-                'product_id' => $this->resolveProductId(
-                    $payload->network
-                ),
-
-                'amount' => $payload->amount,
-            ];
-        }
-
-        private function buildDataPayload(
+private function buildElectricityPayload(
     TransactionRequestData $payload
 ): array {
-
-if (! $payload->product_id) {
-
-        throw ValidationException::withMessages([
-            'product_id' => [
-                'Product ID is required for data vending.'
-            ],
-        ]);
-    }
 
     if (! $payload->beneficiary) {
 
         throw ValidationException::withMessages([
             'beneficiary' => [
-                'Beneficiary is required for data vending.'
+                'Meter number is required.'
             ],
         ]);
     }
 
+    if (! $payload->phone_number) {
+
+    throw ValidationException::withMessages([
+        'phone_number' => [
+            'Phone number is required.'
+        ],
+    ]);
+}
+
+    if (! $payload->network) {
+
+        throw ValidationException::withMessages([
+            'network' => [
+                'Disco is required.'
+            ],
+        ]);
+    }
+
+    if (! $payload->meter_type) {
+
+        throw ValidationException::withMessages([
+            'meter_type' => [
+                'Meter type is required.'
+            ],
+        ]);
+    }
+
+    if (! $payload->amount) {
+
+        throw ValidationException::withMessages([
+            'amount' => [
+                'Amount is required.'
+            ],
+        ]);
+    }
 
     return [
 
-        'serviceCode' => 'ADA',
+        'serviceCode' => 'P-ELECT',
 
-        'product_id' => $payload->product_id,
+        'disco' => strtoupper(
+            $payload->network
+        ),
+
+        'meterNo' => $payload->beneficiary,
+
+        'type' => strtoupper(
+            $payload->meter_type
+        ),
+
+        'amount' => (string) $payload->amount,
+
+       'phonenumber' => $payload->phone_number,
 
         'request_id' => $payload->tracking_id,
-
-        'msisdn' => $payload->beneficiary,
     ];
 }
 
 
-        public function fetchBundles(
-                string $network
-            ): array {
-
-                $response = Http::withHeaders([
-                    'email' => $this->email,
-                    'password' => $this->password,
-                ])->post(
-                    $this->baseUrl . '/index.php',
-                    [
-                        'serviceCode' => 'DTA',
-                        'network' => strtolower($network),
-                    ]
-                );
-
-                return $this->normalizeBundles(
-                    $response->json()
-                );
-            }
-
-  private function normalizeBundles(
-    array $bundles
-): array {
-
-    return collect($bundles)
-
-        ->map(function ($bundle) {
-
-            return [
-
-                'network' => strtoupper(
-                    $bundle['network'] ?? ''
-                ),
-
-                'product_id' => $bundle['product_id'] ?? null,
-
-                'allowance' => $bundle['allowance'] ?? null,
-
-                'amount' => (float) (
-                    $bundle['price'] ?? 0
-                ),
-
-                'validity' => $bundle['validity'] ?? null,
-
-                'category' => $bundle['category'] ?? null,
-            ];
-        })
-
-        ->values()
-
-        ->toArray();
-}
-
-public function validateTv(
-    string $smartCardNo,
-    string $provider
-): array
-{
-
-    if (empty($smartCardNo)) {
-
-    throw ValidationException::withMessages([
-        'smart_card_no' => [
-            'Smart card number is required.'
-        ],
-    ]);
-}
-
-if (empty($provider)) {
-
-    throw ValidationException::withMessages([
-        'provider' => [
-            'TV provider is required.'
-        ],
-    ]);
-}
-    $response = Http::withHeaders([
-
-        'email' => $this->email,
-
-        'password' => $this->password,
-
-    ])->post(
-
-        $this->baseUrl . '/index.php',
-
-        [
-            'serviceCode' => 'V-TV',
-            'smartCardNo' => $smartCardNo,
-            'type' => strtoupper($provider),
-        ]
-    );
-
-    return $response->json();
-}
-
-public function getTvSubscriptionStatus(
-    string $smartCardNo,
-    string $provider
-): array
-{
-    if (empty($smartCardNo)) {
-
-        throw ValidationException::withMessages([
-            'smart_card_no' => [
-                'Smart card number is required.'
-            ],
-        ]);
-    }
-
-    if (empty($provider)) {
-
-        throw ValidationException::withMessages([
-            'provider' => [
-                'TV provider is required.'
-            ],
-        ]);
-    }
-
-    $response = Http::withHeaders([
-
-        'email' => $this->email,
-
-        'password' => $this->password,
-
-    ])->post(
-
-        $this->baseUrl . '/index.php',
-
-        [
-            'serviceCode' => 'MULTICHOICE',
-
-            'type' => strtoupper($provider),
-
-            'action' => 'GET_DUE_DATE_AMOUNT',
-
-            'smartCardNo' => $smartCardNo,
-        ]
-    );
-
-    return $response->json();
-}
-public function fetchTvAddons(
-    string $packageCode
-): array
-{
-    //  dd([
-    //     'method' => 'fetchTvAddons',
-    //     'packageCode' => $packageCode,
-    // ]);
-    if (empty($packageCode)) {
-
-        throw ValidationException::withMessages([
-            'package_code' => [
-                'Package code is required.'
-            ],
-        ]);
-    }
-
-    $response = Http::withHeaders([
-
-        'email' => $this->email,
-
-        'password' => $this->password,
-
-    ])->post(
-
-        $this->baseUrl . '/index.php',
-
-        [
-            'serviceCode' => 'MULTICHOICE',
-
-            'action' => 'GET_ADDONS',
-
-            'code' => $packageCode,
-        ]
-    );
-
-    return $response->json();
-}
-
-public function checkTvBoxOffice(
-    string $smartCardNo,
-    string $provider
-): array
-{
-    if (empty($smartCardNo)) {
-
-        throw ValidationException::withMessages([
-            'smart_card_no' => [
-                'Smart card number is required.'
-            ],
-        ]);
-    }
-
-    if (empty($provider)) {
-
-        throw ValidationException::withMessages([
-            'provider' => [
-                'TV provider is required.'
-            ],
-        ]);
-    }
-
-    $response = Http::withHeaders([
-
-        'email' => $this->email,
-
-        'password' => $this->password,
-
-    ])->post(
-
-        $this->baseUrl . '/index.php',
-
-        [
-            'serviceCode' => 'MULTICHOICE',
-
-            'type' => strtoupper($provider),
-
-            'action' => 'CHECK_BOX_OFFICE',
-
-            'smartCardNo' => $smartCardNo,
-        ]
-    );
-
-    return $response->json();
-}
-
-
-
-private function buildTvPayload(
-    TransactionRequestData $payload
-): array {
-
-    if (! $payload->beneficiary) {
-        throw ValidationException::withMessages([
-            'beneficiary' => ['Smart card number is required.'],
-        ]);
-    }
-
-    if (! $payload->network) {
-        throw ValidationException::withMessages([
-            'network' => ['TV provider is required.'],
-        ]);
-    }
-
-    if (! $payload->package_code) {
-        throw ValidationException::withMessages([
-            'package_code' => ['Package code is required.'],
-        ]);
-    }
-
-    if (! $payload->period) {
-        throw ValidationException::withMessages([
-            'period' => ['Subscription period is required.'],
-        ]);
-    }
-
-    $request = [
-        'serviceCode' => 'P-TV',
-        'smartCardNo' => $payload->beneficiary,
-        'name' => $payload->package_name,
-        'type' => strtoupper($payload->network),
-        'code' => $payload->package_code,
-        'period' => (string) $payload->period,
-        'request_id' => $payload->tracking_id,
-        'hasAddon' => $payload->has_addon ? 'True' : 'False',
-    ];
-
-    if ($payload->has_addon) {
-
-        if (! $payload->addon_code) {
-            throw ValidationException::withMessages([
-                'addon_code' => ['Addon code is required.'],
-            ]);
-        }
-
-        $request['addondetails'] = [
-            'name' => $payload->addon_name,
-            'addoncode' => $payload->addon_code,
-        ];
-    }
-
-    return $request;
 }
