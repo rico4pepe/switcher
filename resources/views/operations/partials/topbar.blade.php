@@ -61,9 +61,27 @@
             </span>
 
             {{-- User --}}
-            <div class="text-sm text-slate-600">
-                {{ auth()->user()->name }}
-            </div>
+           <div class="flex items-center gap-3">
+
+    <div class="text-sm text-slate-600">
+        {{ auth()->user()->name }}
+    </div>
+
+    <form
+        method="POST"
+        action="{{ route('logout') }}"
+    >
+        @csrf
+
+      <button
+    type="submit"
+    class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+>
+    Logout
+</button>
+    </form>
+
+</div>
 
         </div>
 

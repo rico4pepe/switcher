@@ -15,7 +15,9 @@ class VendorHealthController extends Controller
         GetVendorHealthAction $getVendorHealthAction
     ): View {
 
-        $vendors = $getVendorHealthAction->execute();
+        $vendors = $getVendorHealthAction->execute(
+                    request('search')
+                );
 
         return view('operations.vendors.index', [
             'vendors' => $vendors,
@@ -27,34 +29,44 @@ class VendorHealthController extends Controller
     Vendor $vendor
 ): View {
 
-    $vendor->load([
-        'transactions' => fn ($query) => $query
-            ->latest()
-            ->limit(20),
-    ]);
+   $vendor->load([
+    'transactions' => fn ($query) => $query
+        ->whereDate('created_at', today())
+        ->latest()
+        ->limit(20),
+]);
 
-    $totalTransactions = $vendor->transactions()->count();
 
-    $successfulTransactions = $vendor->transactions()
-        ->where('status', 'success')
-        ->count();
+$todayTransactions = $vendor->transactions()
+    ->whereDate('created_at', today());
 
-    $failedTransactions = $vendor->transactions()
-        ->where('status', 'failed')
-        ->count();
+   $totalTransactions = (clone $todayTransactions)->count();
 
-    $pendingTransactions = $vendor->transactions()
-        ->where('status', 'pending')
-        ->count();
+   $successfulTransactions = (clone $todayTransactions)
+    ->where('status', 'success')
+    ->count();
 
-    $averageLatency = round(
-        $vendor->transactions()
-            ->avg('response_time_ms') ?? 0
-    );
+   $failedTransactions = (clone $todayTransactions)
+    ->where('status', 'failed')
+    ->count();
 
-    $successRate = $totalTransactions > 0
-        ? ($successfulTransactions / $totalTransactions) * 100
-        : 0;
+   $pendingTransactions = (clone $todayTransactions)
+    ->where('status', 'pending')
+    ->count();
+
+$averageLatency = round(
+    (
+        (clone $todayTransactions)
+            ->where('status', 'success')
+            ->avg('response_time_ms')
+        ?? 0
+    ) / 1000,
+    2
+);
+
+   $successRate = $totalTransactions > 0
+    ? ($successfulTransactions / $totalTransactions) * 100
+    : 0;
 
     return view('operations.vendors.show', [
         'vendor' => $vendor,

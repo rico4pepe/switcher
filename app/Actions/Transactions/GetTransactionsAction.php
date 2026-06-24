@@ -21,6 +21,7 @@ class GetTransactionsAction
                 $query->latest();
             },
         ])
+        ->whereDate('created_at', today())
         ->latest();
 
     $transactions = $filter
@@ -51,11 +52,34 @@ class GetTransactionsAction
         )->where('status', 'pending')->count(),
     ];
 
+    $successRate = $metrics['totalToday'] > 0
+    ? round(
+        ($metrics['successfulToday'] / $metrics['totalToday']) * 100,
+        2
+    )
+    : 0;
+
+$avgLatency = Transaction::whereDate(
+    'created_at',
+    today()
+)
+->where('status', 'success')
+->avg('response_time_ms');
+
+$metrics['successRate'] = $successRate;
+
+$metrics['avgLatency'] = round(
+    ($avgLatency ?? 0) / 1000,
+    2
+);
+
     return [
 
         'transactions' => $transactions,
 
         'metrics' => $metrics,
+
+
     ];
 }
 }

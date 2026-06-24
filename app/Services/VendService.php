@@ -19,6 +19,7 @@ public function __construct(
     private RetryExecutor $retryExecutor,
     private BundleService $bundleService,
     private TvValidationService $tvService,
+     protected RoutingResolver $routingResolver,
 ) {}
 
     public function handle(array $data): array
@@ -114,16 +115,11 @@ if (
 
 
         // 2. RESOLVE ROUTING
-       $routing = RoutingConfig::where(
-        'product_type',
-        $data['product_type']
-    )
-    ->where(
-        'network',
-        $data['network']
-    )
-    ->where('is_active', true)
-    ->first();
+       $routing = $this->routingResolver->resolve(
+    clientId: (int) $data['client_id'],
+    productType: $data['product_type'],
+    network: $data['network']
+);
 
 
 
@@ -775,6 +771,7 @@ private function buildPayload(
         addon_name: $data['addon_name'] ?? null,
         meter_type: $data['meter_type'] ?? null,
         phone_number: $data['phone_number'] ?? null,
+        customer_name: $data['customer_name'] ?? null,
 
         meta: $data['meta'] ?? [],
     );

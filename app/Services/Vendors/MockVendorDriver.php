@@ -152,4 +152,15 @@ public function checkTvBoxOffice(
     );
 }
 
+    public function validateBetting(
+    string $customerId,
+    string $biller
+): array
+{
+    throw new \Exception(
+        'Betting  has not been implemented'
+    );
+}
+
+
 }

@@ -33,6 +33,7 @@ class VendController extends Controller
             'data',
             'tv',
             'electricity',
+              'betting',
         ]),
     ],
 
@@ -53,6 +54,12 @@ class VendController extends Controller
 
 'meter_type' => [
     'required_if:product_type,electricity',
+    'nullable',
+    'string',
+],
+
+'customer_name' => [
+    'required_if:product_type,betting',
     'nullable',
     'string',
 ],
@@ -191,11 +198,24 @@ class VendController extends Controller
                 };
             }
 
-    public function requery(Transaction $transaction)
-    {
-        return response()->json(
-            $this->service->requery($transaction)
-        );
-    }
+  public function requery(
+    Request $request
+)
+{
+    $request->validate([
+        'tracking_id' => 'required|string',
+    ]);
+
+    $transaction = Transaction::where(
+        'tracking_id',
+        $request->tracking_id
+    )->firstOrFail();
+
+    return response()->json(
+        $this->service->requery(
+            $transaction
+        )
+    );
+}
 
 }

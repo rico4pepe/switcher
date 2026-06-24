@@ -62,4 +62,6 @@ public function requery(
         ->route('operations.transactions.show', $transaction)
         ->with('success', 'Transaction requery initiated.');
 }
+
+
 }

@@ -7,27 +7,50 @@ use Illuminate\Support\Facades\DB;
 
 class GetVendorHealthAction
 {
-    public function execute()
+    public function execute(?string $search = null)
     {
         return Vendor::query()
+            ->when($search, function ($query) use ($search) {
+
+                        $query->where(function ($query) use ($search) {
+
+                            $query->where('name', 'like', "%{$search}%")
+                                ->orWhere('slug', 'like', "%{$search}%")
+                                ->orWhere('driver_key', 'like', "%{$search}%");
+
+                        });
+
+                    })
 
             ->withCount([
-                'transactions',
+                'transactions as transactions_count' => fn ($query)
+                => $query->whereDate(
+                    'created_at',
+                    today()
+                ),
 
                 'transactions as successful_transactions_count' => fn ($query)
-                    => $query->where('status', 'success'),
+                        => $query
+                            ->whereDate('created_at', today())
+                            ->where('status', 'success'),
 
                 'transactions as failed_transactions_count' => fn ($query)
-                    => $query->where('status', 'failed'),
+                    => $query
+                        ->whereDate('created_at', today())
+                        ->where('status', 'failed'),
 
                 'transactions as pending_transactions_count' => fn ($query)
-                    => $query->where('status', 'pending'),
-            ])
+                        => $query
+                            ->whereDate('created_at', today())
+                            ->where('status', 'pending'),
+                            ])
 
-            ->withAvg(
-                'transactions',
-                'response_time_ms'
-            )
+           ->withAvg([
+                    'transactions as transactions_avg_response_time_ms' => fn ($query)
+                        => $query
+                            ->whereDate('created_at', today())
+                            ->where('status', 'success')
+                ], 'response_time_ms')
 
             ->get();
     }

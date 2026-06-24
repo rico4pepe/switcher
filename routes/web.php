@@ -6,9 +6,7 @@ use App\Http\Controllers\Operations\TransactionController;
 use App\Http\Controllers\Operations\VendorHealthController;
 use App\Http\Controllers\Operations\RoutingControlController;
 
-Route::get('/', function () {
-    return view('welcome');
-});
+Route::redirect('/', '/login');
 
 Route::get('/dashboard', function () {
     return view('dashboard');

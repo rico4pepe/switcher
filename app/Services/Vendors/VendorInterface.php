@@ -46,5 +46,9 @@ public function validateElectricity(
     string $type
 ): array;
 
+public function validateBetting(
+    string $customerId,
+    string $biller
+): array;
 
 }

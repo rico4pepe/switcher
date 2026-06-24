@@ -13,4 +13,11 @@ class Client extends Model
     {
         return $this->hasMany(Transaction::class);
     }
+
+    public function routingConfigs()
+{
+    return $this->hasMany(
+        ClientRoutingConfig::class
+    );
+}
 }

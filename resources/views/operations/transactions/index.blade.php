@@ -26,7 +26,7 @@
        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
 
     <x-operations.stat-card
-        title="Total Today"
+        title="Total Transaction"
         :value="number_format($metrics['totalToday'])"
     />
 
@@ -48,17 +48,16 @@
         valueClass="text-amber-600"
     />
 
-    <x-operations.stat-card
-        title="Requeries"
-        value="42"
-        valueClass="text-violet-600"
-    />
-
-    <x-operations.stat-card
-        title="Failovers"
-        value="17"
-        valueClass="text-sky-600"
-    />
+   <x-operations.stat-card
+    title="Success Rate"
+    :value="$metrics['successRate'] . '%'"
+    valueClass="text-emerald-600"
+/>
+<x-operations.stat-card
+    title="Avg Latency"
+    :value="$metrics['avgLatency'] . 's'"
+    valueClass="text-sky-600"
+/>
 
 </div>
 
@@ -114,7 +113,7 @@
 >
     <option value="">All</option>
 
-    
+
 
     @foreach ($vendors as $vendor)
 

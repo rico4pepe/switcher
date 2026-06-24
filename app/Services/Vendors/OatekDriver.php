@@ -53,6 +53,9 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
     'electricity' => $this->buildElectricityPayload(
     $payload
 ),
+'betting' => $this->buildBettingPayload(
+    $payload
+),
     default => throw ValidationException::withMessages([
         'product_type' => [
             sprintf(
@@ -622,5 +625,96 @@ private function buildElectricityPayload(
     ];
 }
 
+public function validateBetting(
+    string $customerId,
+    string $biller
+): array
+{
+    $response = Http::withHeaders([
+
+        'email' => $this->email,
+
+        'password' => $this->password,
+
+    ])->post(
+
+        $this->baseUrl . '/index.php',
+
+        [
+
+            'serviceCode' => 'BDV',
+
+            'type' => 'BET',
+
+            'biller' => $biller,
+
+            'customerId' => $customerId,
+        ]
+    );
+
+    return $response->json();
+}
+
+
+
+private function buildBettingPayload(
+    TransactionRequestData $payload
+): array {
+
+    if (! $payload->beneficiary) {
+
+        throw ValidationException::withMessages([
+            'beneficiary' => [
+                'Customer ID is required.'
+            ],
+        ]);
+    }
+
+    if (! $payload->network) {
+
+        throw ValidationException::withMessages([
+            'network' => [
+                'Betting platform is required.'
+            ],
+        ]);
+    }
+
+    if (! $payload->customer_name) {
+
+        throw ValidationException::withMessages([
+            'customer_name' => [
+                'Customer name is required.'
+            ],
+        ]);
+    }
+
+    if (! $payload->amount) {
+
+        throw ValidationException::withMessages([
+            'amount' => [
+                'Amount is required.'
+            ],
+        ]);
+    }
+
+    return [
+
+        'serviceCode' => 'BDP',
+
+        'reference' => '',
+
+        'amount' => (string) $payload->amount,
+
+        'customerId' => $payload->beneficiary,
+
+        'name' => $payload->customer_name,
+
+        'type' => 'BET',
+
+        'biller' => $payload->network,
+
+        'request_id' => $payload->tracking_id,
+    ];
+}
 
 }

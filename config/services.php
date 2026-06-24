@@ -45,4 +45,13 @@ return [
      'requery_url' => env('OATEK_REQUERY_URL'),
 ],
 
+'vendy' => [
+
+    'base_url' => env('VENDY_BASE_URL'),
+
+    'client_id' => env('VENDY_CLIENT_ID'),
+
+    'secret' => env('VENDY_SECRET'),
+],
+
 ];

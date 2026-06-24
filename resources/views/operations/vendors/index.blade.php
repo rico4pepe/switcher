@@ -3,8 +3,8 @@
 @section('content')
 
   <x-operations.page-header
-    title="Vendor Management"
-    description="Operational visibility and vendor lifecycle management."
+    title="Vendor Health"
+    description="Today's operational performance across all vendors."
 >
 
     <x-slot name="actions">
@@ -21,6 +21,26 @@
 </x-operations.page-header>
 
     <div class="mt-6 rounded-xl border border-slate-200 bg-white">
+
+        <div class="border-b border-slate-200 p-4">
+
+    <form method="GET">
+
+        <div class="max-w-md">
+
+            <input
+                type="text"
+                name="search"
+                value="{{ request('search') }}"
+                placeholder="Search vendor..."
+                class="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm focus:border-slate-500 focus:outline-none"
+            >
+
+        </div>
+
+    </form>
+
+</div>
 
         <div class="overflow-x-auto">
 
