@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\ElectricityController;
 use App\Http\Controllers\Api\BettingController;
 
 
-Route::post('/vend', [VendController::class, 'vend']);
+Route::post('/vend', [VendController::class, 'vend'])->middleware('client.auth');
 //Route::post('/b2b', [VendController::class, 'oatek']);
 
 Route::post('/b2b', [VendController::class, 'oatek']);

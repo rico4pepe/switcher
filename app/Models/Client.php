@@ -9,6 +9,10 @@ class Client extends Model
     //
      protected $guarded = [];
 
+     protected $casts = [
+    'is_active' => 'boolean',
+    'last_used_at' => 'datetime',
+];
     public function transactions()
     {
         return $this->hasMany(Transaction::class);
@@ -20,4 +24,6 @@ class Client extends Model
         ClientRoutingConfig::class
     );
 }
+
+
 }

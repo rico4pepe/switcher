@@ -61,16 +61,34 @@
 
 </div>
 
-                {{-- Filters --}}
-                <form method="GET">
-            <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+<div class="mt-6 rounded-xl border border-slate-200 bg-white">
 
-           <x-operations.filter-input
-            name="reference"
-            label="Reference"
-            placeholder="TXN-12345"
-            :value="request('reference')"
-        />
+    <div class="border-b border-slate-200 px-6 py-4">
+
+        <h2 class="text-sm font-semibold text-slate-900">
+            Transaction Filters
+        </h2>
+
+        <p class="mt-1 text-sm text-slate-500">
+            Search and filter operational transactions.
+        </p>
+
+    </div>
+
+    <form
+        method="GET"
+        class="p-6"
+    >
+
+        {{-- Row 1 --}}
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+
+            <x-operations.filter-input
+                name="reference"
+                label="Reference"
+                placeholder="Tracking ID"
+                :value="request('reference')"
+            />
 
             <x-operations.filter-input
                 name="customer"
@@ -79,103 +97,187 @@
                 :value="request('customer')"
             />
 
-           <x-operations.filter-select
-    name="status"
-    label="Status"
->
-            <option value="">All</option>
+            <x-operations.filter-select
+                name="client"
+                label="Client"
+            >
+
+                <option value="">All Clients</option>
+
+                @foreach($clients as $client)
 
                     <option
-                    value="success"
-                    @selected(request('status') === 'success')
-                >
+                        value="{{ $client->id }}"
+                        @selected(request('client') == $client->id)
+                    >
+                        {{ $client->organization_name }}
+                    </option>
+
+                @endforeach
+
+            </x-operations.filter-select>
+
+            <x-operations.filter-select
+                name="status"
+                label="Status"
+            >
+
+                <option value="">All Statuses</option>
+
+                <option value="success" @selected(request('status')=='success')>
                     Success
                 </option>
 
-                <option
-                    value="failed"
-                    @selected(request('status') === 'failed')
-                >
+                <option value="failed" @selected(request('status')=='failed')>
                     Failed
                 </option>
 
-                <option
-                    value="pending"
-                    @selected(request('status') === 'pending')
-                >
+                <option value="pending" @selected(request('status')=='pending')>
                     Pending
                 </option>
+
             </x-operations.filter-select>
 
-<x-operations.filter-select
-    name="vendor"
-    label="Vendor"
->
-    <option value="">All</option>
+        </div>
 
+        {{-- Row 2 --}}
+        <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 
+            <x-operations.filter-select
+                name="vendor"
+                label="Vendor"
+            >
 
-    @foreach ($vendors as $vendor)
+                <option value="">All Vendors</option>
 
-        <option
-            value="{{ $vendor->name }}"
-            @selected(request('vendor') === $vendor->name)
-        >
-            {{ $vendor->name }}
-        </option>
+                @foreach($vendors as $vendor)
 
-    @endforeach
+                    <option
+                        value="{{ $vendor->name }}"
+                        @selected(request('vendor') == $vendor->name)
+                    >
+                        {{ $vendor->name }}
+                    </option>
 
-</x-operations.filter-select>
+                @endforeach
 
-<x-operations.filter-select
-    name="service"
-    label="Service"
->
-    <option value="">All</option>
+            </x-operations.filter-select>
 
-    <option
-        value="airtime"
-        @selected(request('service') === 'airtime')
-    >
-        Airtime
-    </option>
+            <x-operations.filter-select
+                name="service"
+                label="Service"
+            >
 
-    <option
-        value="data"
-        @selected(request('service') === 'data')
-    >
-        Data
-    </option>
-</x-operations.filter-select>
+                <option value="">All Services</option>
+
+                <option
+                    value="airtime"
+                    @selected(request('service')=='airtime')
+                >
+                    Airtime
+                </option>
+
+                <option
+                    value="data"
+                    @selected(request('service')=='data')
+                >
+                    Data
+                </option>
+
+                <option
+                    value="tv"
+                    @selected(request('service')=='tv')
+                >
+                    TV
+                </option>
+
+                <option
+                    value="electricity"
+                    @selected(request('service')=='electricity')
+                >
+                    Electricity
+                </option>
+
+                <option
+                    value="betting"
+                    @selected(request('service')=='betting')
+                >
+                    Betting
+                </option>
+
+            </x-operations.filter-select>
+
             <div>
 
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Date
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Date Range
                 </label>
 
-                <input
-    type="date"
-    name="date"
-    value="{{ request('date') }}"
-    class="w-full rounded-lg border-slate-300 text-sm focus:border-slate-400 focus:ring-slate-400"
->
+                <div class="flex items-center gap-2">
+
+                    <input
+                        type="date"
+                        name="from"
+                        value="{{ request('from') }}"
+                        class="w-full rounded-lg border-slate-300 text-sm"
+                    >
+
+                    <span class="text-slate-400">
+                        →
+                    </span>
+
+                    <input
+                        type="date"
+                        name="to"
+                        value="{{ request('to') }}"
+                        class="w-full rounded-lg border-slate-300 text-sm"
+                    >
+
+                </div>
 
             </div>
 
-            <div class="flex items-end">
+        </div>
 
-    <button
-        type="submit"
-        class="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+        {{-- Actions --}}
+        <div class="mt-6 flex flex-wrap items-center justify-between">
+
+            <div class="flex gap-2">
+
+                {{-- Reserved for Sprint 1 --}}
+                <a
+        href="{{ route('operations.transactions.export.csv', request()->query()) }}"
+        class="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
     >
-        Apply Filters
-    </button>
+        Export CSV
+    </a>
+                {{-- Export Excel --}}
 
-</div>
+            </div>
+
+            <div class="flex gap-3">
+
+                <a
+                    href="{{ route('operations.transactions.index') }}"
+                    class="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                    Reset
+                </a>
+
+                <button
+                    type="submit"
+                    class="inline-flex items-center rounded-lg bg-slate-900 px-5 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                    Apply Filters
+                </button>
+
+            </div>
 
         </div>
-        </form>
+
+    </form>
+
+</div>
                 {{-- Transactions Table --}}
 
             <x-operations.table>
@@ -315,8 +417,6 @@
     </x-operations.table-body>
 
 </x-operations.table>
-
-
 
 
     </div>

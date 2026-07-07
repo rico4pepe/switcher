@@ -24,7 +24,7 @@ class VendController extends Controller
 
     'tracking_id' => 'required|string',
 
-    'client_id' => 'required|exists:clients,id',
+   // 'client_id' => 'required|exists:clients,id',
 
     'product_type' => [
         'required',
@@ -51,6 +51,8 @@ class VendController extends Controller
     'nullable',
     'string',
 ],
+
+
 
 'meter_type' => [
     'required_if:product_type,electricity',
@@ -99,6 +101,19 @@ class VendController extends Controller
     ],
 ]);
 
+
+$client = $request
+    ->attributes
+    ->get('client');
+
+if (! $client) {
+
+    return response()->json([
+        'message' => 'Unauthenticated client.'
+    ], 401);
+}
+
+$data['client_id'] = $client->id;
 
 
             return response()->json(

@@ -6,10 +6,13 @@ use Illuminate\View\View;
 use App\Filters\TransactionFilter;
 use App\Http\Controllers\Controller;
 use App\Actions\Transactions\GetTransactionsAction;
+use App\Actions\Transactions\ExportTransactionsCsvAction;
 use App\Models\Transaction;
 use App\Services\VendService;
 use Illuminate\Http\RedirectResponse;
 use App\Models\Vendor;
+use App\Models\Client;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 
 class TransactionController extends Controller
@@ -24,6 +27,11 @@ class TransactionController extends Controller
             ->orderBy('name')
             ->get();
 
+        $clients = Client::query()
+            ->where('is_active', true)
+            ->orderBy('organization_name')
+            ->get();
+
        $data = $getTransactionsAction->execute($filter);
 
        return view('operations.transactions.index', [
@@ -32,6 +40,7 @@ class TransactionController extends Controller
 
     'metrics' => $data['metrics'],
      'vendors' => $vendors,
+     'clients' => $clients,
 ]);
     }
 
@@ -61,6 +70,15 @@ public function requery(
     return redirect()
         ->route('operations.transactions.show', $transaction)
         ->with('success', 'Transaction requery initiated.');
+}
+
+public function exportCsv(
+    TransactionFilter $filter,
+    ExportTransactionsCsvAction $action
+): StreamedResponse {
+
+    return $action->execute($filter);
+
 }
 
 

@@ -88,5 +88,24 @@
 
     </div>
 
+
+
+    <div
+    x-data="{ show: false, message: '' }"
+    x-on:notify.window="
+        message = $event.detail.message;
+        show = true;
+        setTimeout(() => show = false, 2500);
+    "
+    x-show="show"
+    x-transition
+    class="fixed top-6 right-6 z-50"
+    style="display: none;"
+>
+    <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-lg">
+        <span x-text="message"></span>
+    </div>
+</div>
+
 </body>
 </html>

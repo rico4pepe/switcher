@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Operations\TransactionController;
 use App\Http\Controllers\Operations\VendorHealthController;
 use App\Http\Controllers\Operations\RoutingControlController;
+use App\Http\Controllers\Operations\ClientController;
+use App\Http\Controllers\Operations\ClientRoutingController;
 
 Route::redirect('/', '/login');
 
@@ -82,6 +84,60 @@ Route::put('/routing/{routingConfig}', [
     'update',
 ])->name('routing.update');
 
+//  Route::get(
+//             '/clients',
+//             [ClientController::class, 'index']
+//         )->name('clients.index');
+
+
+//              Route::get(
+//             '/clients/{client}',
+//             [ClientController::class, 'show']
+//         )->name('clients.show');
+
+
+        Route::resource('clients', ClientController::class)
+    ->except(['destroy']);
+
+    Route::post('/clients/{client}/toggle', [
+    ClientController::class,
+    'toggle',
+])->name('clients.toggle');
+
+Route::post(
+    '/clients/{client}/regenerate-key',
+    [ClientController::class, 'regenerateKey']
+)->name('clients.regenerate-key');
+
+
+Route::get(
+    '/client-routing/{clientRoutingConfig}/edit',
+    [ClientRoutingController::class, 'edit']
+)->name('client-routing.edit');
+
+Route::put(
+    '/client-routing/{clientRoutingConfig}',
+    [ClientRoutingController::class, 'update']
+)->name('client-routing.update');
+
+
+Route::get(
+    '/clients/{client}/routing/create',
+    [ClientRoutingController::class, 'create']
+)->name('client-routing.create');
+
+Route::post(
+    '/clients/{client}/routing',
+    [ClientRoutingController::class, 'store']
+)->name('client-routing.store');
+
+Route::get(
+    '/transactions/export/csv',
+    [
+        TransactionController::class,
+        'exportCsv',
+    ]
+)->name('transactions.export.csv');
 
 });
 

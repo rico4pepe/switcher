@@ -21,7 +21,6 @@ class GetTransactionsAction
                 $query->latest();
             },
         ])
-        ->whereDate('created_at', today())
         ->latest();
 
     $transactions = $filter
