@@ -15,6 +15,12 @@ class TransactionRequestData
 
         public readonly ?float $amount = null,
 
+        // New canonical Switcher product identifier
+        public readonly ?string $product_code = null,
+
+        // Temporary - retained for backward compatibility.
+        // Will be removed after all vendor drivers migrate
+        // to ProductCatalogService.
         public readonly ?string $product_id = null,
 
         public readonly ?string $package_code = null,
@@ -26,10 +32,15 @@ class TransactionRequestData
         public readonly ?bool $has_addon = null,
 
         public readonly ?string $addon_code = null,
+
         public readonly ?string $addon_name = null,
+
         public readonly ?string $meter_type = null,
+
         public readonly ?string $phone_number = null,
+
         public readonly ?string $customer_name = null,
+
         public readonly array $meta = [],
     ) {}
 }

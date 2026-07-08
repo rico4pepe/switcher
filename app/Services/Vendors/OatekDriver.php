@@ -7,6 +7,7 @@ use App\Models\Transaction;
 use App\DataTransferObjects\TransactionRequestData;
 use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
+use App\Services\VendorProductResolver;
 
 class OatekDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -19,18 +20,20 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
      private string $requeryUrl;
 
-            public function __construct()
-            {
-                $this->baseUrl = (string)  config('services.oatek.base_url');
+     private const DRIVER_KEY = 'oatek';
 
-                $this->email = (string)  config('services.oatek.email');
+          public function __construct(
+    protected VendorProductResolver $resolver
+)
+{
+    $this->baseUrl = (string) config('services.oatek.base_url');
 
-                $this->password = (string)  config('services.oatek.password');
+    $this->email = (string) config('services.oatek.email');
 
-                $this->requeryUrl = (string)  config('services.oatek.requery_url');
+    $this->password = (string) config('services.oatek.password');
 
-
-            }
+    $this->requeryUrl = (string) config('services.oatek.requery_url');
+}
                 public function vend(
                 TransactionRequestData $payload
             ): NormalizedVendorResponse {
@@ -204,14 +207,14 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
             TransactionRequestData $payload
         ): array {
 
-        if (! $payload->product_id) {
+      if (! $payload->product_code) {
 
-                throw ValidationException::withMessages([
-                    'product_id' => [
-                        'Product ID is required for data vending.'
-                    ],
-                ]);
-            }
+    throw ValidationException::withMessages([
+        'product_code' => [
+            'Product code is required for data vending.'
+        ],
+    ]);
+}
 
             if (! $payload->beneficiary) {
 
@@ -227,7 +230,10 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
                 'serviceCode' => 'ADA',
 
-                'product_id' => $payload->product_id,
+                'product_id' => $this->resolver->resolve(
+                    self::DRIVER_KEY,
+                    $payload->product_code
+                ),
 
                 'request_id' => $payload->tracking_id,
 

@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\VendorProductMapping;
 
 class Vendor extends Model
 {
@@ -31,5 +33,12 @@ class Vendor extends Model
     )->resolve($this->driver_key);
 }
 
+
+public function productMappings(): HasMany
+{
+    return $this->hasMany(
+        VendorProductMapping::class
+    );
+}
 
 }

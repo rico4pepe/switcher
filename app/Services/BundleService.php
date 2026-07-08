@@ -2,46 +2,41 @@
 
 namespace App\Services;
 
-use App\Models\Vendor;
-use App\Services\Vendors\VendorDriverResolver;
-use App\Models\RoutingConfig;
-
 class BundleService
 {
     public function __construct(
-        protected VendorDriverResolver $resolver
+        protected ProductCatalogService $catalog
     ) {
     }
 
-public function fetch(
+ public function fetch(
     string $network
 ): array {
 
-    $route = RoutingConfig::query()
-
-        ->where(
-            'product_type',
-            'data'
+    return $this->catalog
+        ->byNetwork(
+            'data',
+            $network
         )
+        ->map(function ($product) {
 
-        ->where(
-            'network',
-            strtoupper($network)
-        )
+            return [
 
-        ->where(
-            'is_active',
-            true
-        )
+                'product_code' => $product->product_code,
 
-        ->firstOrFail();
+                'display_name' => $product->display_name,
 
-    $driver = $this->resolver->resolve(
-        $route->primary_vendor_id
-    );
+                'amount' => $product->amount,
 
-    return $driver->fetchBundles(
-        $network
-    );
+                'validity' => $product->validity,
+
+                'category' => $product->category,
+            ];
+
+        })
+
+        ->values()
+
+        ->toArray();
 }
 }

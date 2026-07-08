@@ -7,6 +7,7 @@ use App\DataTransferObjects\TransactionRequestData;
 use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Http;
+use App\Services\VendorProductResolver;
 
 class VendifyDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -18,10 +19,13 @@ private string $clientId;
 
 private string $secret;
 
+private const DRIVER_KEY = 'vendify';
+
     // private string $requeryUrl;
 
-public function __construct()
-{
+public function __construct(
+     protected VendorProductResolver $resolver
+) {
     $this->baseUrl = (string) config(
         'services.vendy.base_url'
     );
@@ -33,7 +37,6 @@ public function __construct()
     $this->secret = (string) config(
         'services.vendy.secret'
     );
-
 }
 
 private function resolveNetwork(
@@ -355,7 +358,9 @@ private function buildDataPayload(
 
         'amount' => (string) $payload->amount,
 
-        'tarrifTypeId' => $payload->product_id,
+        'tarrifTypeId' => $this->resolveVendorProductCode(
+            $payload
+        ),
 
         'trackingId' => $payload->tracking_id,
     ];
@@ -419,6 +424,26 @@ public function checkTvBoxOffice(
 {
     throw new \Exception(
         'Betting  has not been implemented'
+    );
+}
+
+
+protected function resolveVendorProductCode(
+    TransactionRequestData $payload
+): string
+{
+    if (! $payload->product_code) {
+
+        throw ValidationException::withMessages([
+            'product_code' => [
+                'Product code is required.'
+            ]
+        ]);
+    }
+
+    return $this->resolver->resolve(
+        self::DRIVER_KEY,
+        $payload->product_code
     );
 }
 
