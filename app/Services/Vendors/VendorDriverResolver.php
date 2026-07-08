@@ -3,9 +3,15 @@
 namespace App\Services\Vendors;
 
 use App\Models\Vendor;
+use Illuminate\Contracts\Container\Container;
 
 class VendorDriverResolver
 {
+    public function __construct(
+        protected Container $container
+    ) {
+    }
+
     public function resolve(
         int $vendorId
     ): VendorInterface {
@@ -21,6 +27,8 @@ class VendorDriverResolver
 
         $driverClass = $drivers[$vendor->driver_key]['class'];
 
-        return new $driverClass();
+        return $this->container->make(
+            $driverClass
+        );
     }
 }

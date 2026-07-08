@@ -80,19 +80,11 @@ class ProductCatalogService
     /**
      * Resolve vendor mapping.
      */
-   public function resolveVendorProduct(
-    string $productCode,
+public function resolveVendorProduct(
+    Product $product,
     int $vendorId
 ): ?VendorProductMapping
 {
-    $product = $this->findByCode(
-        $productCode
-    );
-
-    if (! $product) {
-        return null;
-    }
-
     return VendorProductMapping::active()
         ->vendor($vendorId)
         ->product($product->id)

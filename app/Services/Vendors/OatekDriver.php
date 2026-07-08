@@ -8,6 +8,7 @@ use App\DataTransferObjects\TransactionRequestData;
 use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
 use App\Services\VendorProductResolver;
+use App\Services\VendorRequestEncoder;
 
 class OatekDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -23,7 +24,8 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
      private const DRIVER_KEY = 'oatek';
 
           public function __construct(
-    protected VendorProductResolver $resolver
+    protected VendorProductResolver $resolver,
+     protected VendorRequestEncoder $requestEncoder
 )
 {
     $this->baseUrl = (string) config('services.oatek.base_url');
@@ -113,7 +115,11 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
                 $payload = [
 
-                    'request_id' => $transaction->tracking_id,
+                    'request_id' => $this->requestEncoder->encode(
+                        self::DRIVER_KEY,
+                        $transaction->id,
+                        $transaction->ringo_reference
+                    ),
                 ];
 
                 $response = Http::withHeaders([
@@ -191,7 +197,11 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
                         'serviceCode' => 'VAR',
 
-                        'request_id' => $payload->tracking_id,
+                        'request_id' => $this->requestEncoder->encode(
+    self::DRIVER_KEY,
+    $payload->transaction_id,
+    $payload->ringo_reference
+),
 
                         'msisdn' => $payload->beneficiary,
 
@@ -235,7 +245,11 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
                     $payload->product_code
                 ),
 
-                'request_id' => $payload->tracking_id,
+                'request_id' => $this->requestEncoder->encode(
+                    self::DRIVER_KEY,
+                    $payload->transaction_id,
+                    $payload->ringo_reference
+                ),
 
                 'msisdn' => $payload->beneficiary,
             ];
@@ -507,7 +521,11 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
                     'type' => strtoupper($payload->network),
                     'code' => $payload->package_code,
                     'period' => (string) $payload->period,
-                    'request_id' => $payload->tracking_id,
+                   'request_id' => $this->requestEncoder->encode(
+    self::DRIVER_KEY,
+    $payload->transaction_id,
+    $payload->ringo_reference
+),
                     'hasAddon' => $payload->has_addon ? 'True' : 'False',
                 ];
 
@@ -627,7 +645,11 @@ private function buildElectricityPayload(
 
        'phonenumber' => $payload->phone_number,
 
-        'request_id' => $payload->tracking_id,
+        'request_id' => $this->requestEncoder->encode(
+            self::DRIVER_KEY,
+            $payload->transaction_id,
+            $payload->ringo_reference
+        ),
     ];
 }
 
@@ -719,7 +741,11 @@ private function buildBettingPayload(
 
         'biller' => $payload->network,
 
-        'request_id' => $payload->tracking_id,
+        'request_id' => $this->requestEncoder->encode(
+            self::DRIVER_KEY,
+            $payload->transaction_id,
+            $payload->ringo_reference
+        ),
     ];
 }
 

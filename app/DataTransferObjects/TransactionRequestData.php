@@ -5,42 +5,47 @@ namespace App\DataTransferObjects;
 class TransactionRequestData
 {
     public function __construct(
-        public readonly string $tracking_id,
-        public readonly string $client_id,
-        public readonly string $product_type,
+    public readonly string $tracking_id,
 
-        public readonly ?string $network = null,
+    public readonly string $client_id,
 
-        public readonly ?string $beneficiary = null,
+    public readonly string $product_type,
 
-        public readonly ?float $amount = null,
+    // Canonical Switcher transaction reference
+    public readonly string $ringo_reference,
 
-        // New canonical Switcher product identifier
-        public readonly ?string $product_code = null,
+    public readonly int $transaction_id,
 
-        // Temporary - retained for backward compatibility.
-        // Will be removed after all vendor drivers migrate
-        // to ProductCatalogService.
-        public readonly ?string $product_id = null,
+    public readonly ?string $network = null,
 
-        public readonly ?string $package_code = null,
+    public readonly ?string $beneficiary = null,
 
-        public readonly ?string $package_name = null,
+    public readonly ?float $amount = null,
 
-        public readonly ?int $period = null,
+    // New canonical Switcher product identifier
+    public readonly ?string $product_code = null,
 
-        public readonly ?bool $has_addon = null,
+    // Temporary - retained for backward compatibility.
+    public readonly ?string $product_id = null,
 
-        public readonly ?string $addon_code = null,
+    public readonly ?string $package_code = null,
 
-        public readonly ?string $addon_name = null,
+    public readonly ?string $package_name = null,
 
-        public readonly ?string $meter_type = null,
+    public readonly ?int $period = null,
 
-        public readonly ?string $phone_number = null,
+    public readonly ?bool $has_addon = null,
 
-        public readonly ?string $customer_name = null,
+    public readonly ?string $addon_code = null,
 
-        public readonly array $meta = [],
-    ) {}
+    public readonly ?string $addon_name = null,
+
+    public readonly ?string $meter_type = null,
+
+    public readonly ?string $phone_number = null,
+
+    public readonly ?string $customer_name = null,
+
+    public readonly array $meta = [],
+) {}
 }

@@ -66,11 +66,11 @@ class VendController extends Controller
     'string',
 ],
 
-    'product_id' => [
-        'required_if:product_type,data',
-        'nullable',
-        'string',
-    ],
+ 'product_code' => [
+    'required_if:product_type,data',
+    'nullable',
+    'string',
+],
 
     'package_code' => [
         'required_if:product_type,tv',

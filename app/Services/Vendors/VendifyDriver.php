@@ -8,6 +8,7 @@ use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Http;
 use App\Services\VendorProductResolver;
+use App\Services\VendorRequestEncoder;
 
 class VendifyDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -24,7 +25,8 @@ private const DRIVER_KEY = 'vendify';
     // private string $requeryUrl;
 
 public function __construct(
-     protected VendorProductResolver $resolver
+     protected VendorProductResolver $resolver,
+        protected VendorRequestEncoder $requestEncoder
 ) {
     $this->baseUrl = (string) config(
         'services.vendy.base_url'
@@ -137,10 +139,14 @@ private function normalizeBundles(
     Transaction $transaction
 ): NormalizedVendorResponse
 {
-    $payload = [
+   $payload = [
 
-        'trackingId' => $transaction->tracking_id,
-    ];
+    'trackingId' => $this->requestEncoder->encode(
+        self::DRIVER_KEY,
+        $transaction->id,
+        $transaction->ringo_reference
+    ),
+];
 
     $response = Http::withHeaders(
         $this->headers()
@@ -362,7 +368,11 @@ private function buildDataPayload(
             $payload
         ),
 
-        'trackingId' => $payload->tracking_id,
+ 'trackingId' => $this->requestEncoder->encode(
+    self::DRIVER_KEY,
+    $payload->transaction_id,
+    $payload->ringo_reference
+),
     ];
 }
 

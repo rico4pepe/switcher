@@ -12,6 +12,8 @@ use App\Services\Retry\RetryExecutor;
 use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
 
+
+
 class VendService
 {
 
@@ -20,6 +22,7 @@ public function __construct(
     private BundleService $bundleService,
     private TvValidationService $tvService,
      protected RoutingResolver $routingResolver,
+      protected VendorDriverResolver $resolver,
 ) {}
 
     public function handle(array $data): array
@@ -34,38 +37,51 @@ public function __construct(
             trim($data['network'])
         );
 
-        if (
+if (
     $data['product_type'] === 'data'
-    && isset($data['product_id'])
+    && isset($data['product_code'])
 ) {
 
     $bundles = $this->bundleService
         ->fetch($data['network']);
 
-          if (empty($bundles)) {
+    if (empty($bundles)) {
 
         throw ValidationException::withMessages([
             'network' => [
-                'No bundles returned for selected network.'
+                'No bundles returned for the selected network.'
             ],
         ]);
     }
 
     $bundle = collect($bundles)
         ->firstWhere(
-            'product_id',
-            $data['product_id']
+            'product_code',
+            $data['product_code']
         );
 
     if (! $bundle) {
-       throw ValidationException::withMessages([
-    'product_id' => [
+
+        throw ValidationException::withMessages([
+            'product_code' => [
                 'Selected bundle does not exist for this network.'
             ],
         ]);
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Populate canonical transaction data
+    |--------------------------------------------------------------------------
+    */
+
     $data['amount'] = $bundle['amount'];
+
+    $data['product_code'] = $bundle['product_code'];
+
+    $data['package_name'] = $bundle['display_name'] ?? null;
+
+    $data['period'] = $bundle['validity'] ?? null;
 }
 
 if (
@@ -107,7 +123,19 @@ if (
 
 
         // 1. IDEMPOTENCY CHECK
-        $existing = Transaction::where('tracking_id', $data['tracking_id'])->first();
+        $existing = Transaction::query()
+
+    ->where(
+        'client_id',
+        $data['client_id']
+    )
+
+    ->where(
+        'tracking_id',
+        $data['tracking_id']
+    )
+
+    ->first();
 
         if ($existing) {
             return $this->formatResponse($existing);
@@ -382,13 +410,18 @@ try {
         'Transaction initialized'
     );
 
-    $resolver = new VendorDriverResolver();
 
-    $driver = $resolver->resolve($vendorId);
+
+   $driver = $this->resolver->resolve(
+    $vendorId
+);
 
     $start = microtime(true);
 
-    $payload = $this->buildPayload($data);
+    $payload = $this->buildPayload(
+    $transaction,
+    $data
+);
 
 
     try {
@@ -522,11 +555,14 @@ try {
     bool $allowRetry = true
 ): NormalizedVendorResponse {
 
-    $resolver = new VendorDriverResolver();
+    //$resolver = new VendorDriverResolver();
 
-    $driver = $resolver->resolve($vendorId);
+    $driver = $this->resolver->resolve($vendorId);
 
-    $payload = $this->buildPayload($data);
+    $payload = $this->buildPayload(
+    $transaction,
+    $data
+);
 
     if ($allowRetry) {
 
@@ -650,9 +686,9 @@ try {
         'Requery initiated'
     );
 
-    $resolver = new VendorDriverResolver();
+    // $resolver = new VendorDriverResolver();
 
-    $driver = $resolver->resolve($transaction->vendor_id);
+    $driver = $this->resolver->resolve($transaction->vendor_id);
 
     try {
 
@@ -739,10 +775,15 @@ try {
 
 
 private function buildPayload(
+    Transaction $transaction,
     array $data
 ): TransactionRequestData {
 
     return new TransactionRequestData(
+
+        ringo_reference: $transaction->ringo_reference,
+
+        transaction_id: $transaction->id,
 
         tracking_id: $data['tracking_id'],
 
@@ -756,6 +797,10 @@ private function buildPayload(
 
         amount: $data['amount'] ?? null,
 
+        // ✅ Canonical Switcher product
+        product_code: $data['product_code'] ?? null,
+
+        // Temporary for backward compatibility
         product_id: $data['product_id'] ?? null,
 
         package_code: $data['package_code'] ?? null,
@@ -769,8 +814,11 @@ private function buildPayload(
         addon_code: $data['addon_code'] ?? null,
 
         addon_name: $data['addon_name'] ?? null,
+
         meter_type: $data['meter_type'] ?? null,
+
         phone_number: $data['phone_number'] ?? null,
+
         customer_name: $data['customer_name'] ?? null,
 
         meta: $data['meta'] ?? [],
