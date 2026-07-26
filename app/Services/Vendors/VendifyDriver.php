@@ -9,6 +9,7 @@ use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Http;
 use App\Services\VendorProductResolver;
 use App\Services\VendorRequestEncoder;
+use App\Support\VendorProductNormalizer;
 
 class VendifyDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -26,7 +27,8 @@ private const DRIVER_KEY = 'vendify';
 
 public function __construct(
      protected VendorProductResolver $resolver,
-        protected VendorRequestEncoder $requestEncoder
+        protected VendorRequestEncoder $requestEncoder,
+         protected VendorProductNormalizer $productNormalizer,
 ) {
     $this->baseUrl = (string) config(
         'services.vendy.base_url'
@@ -81,30 +83,23 @@ private function normalizeBundles(
 ): array {
 
     return collect(
-        $response['plans'] ?? []
-    )
+    $response['bundle'] ?? []
+)
 
-        ->map(function ($bundle) use ($network) {
+          ->map(function ($bundle) use ($network) {
 
-            return [
+        $bundleData = [
+            'network' => strtoupper($network),
+            'product_id' => $bundle['tarrifTypeId'] ?? null,
+            'allowance' => $bundle['productName'] ?? null,
+            'amount' => (float) ($bundle['price'] ?? 0),
+            'validity' => null,
+            'category' => $bundle['productType'] ?? null,
+        ];
 
-                'network' => strtoupper(
-                    $network
-                ),
+        return $this->productNormalizer->normalize($bundleData);
 
-                'product_id' => $bundle['tarrifTypeId'] ?? null,
-
-                'allowance' => $bundle['productName'] ?? null,
-
-                'amount' => (float) (
-                    $bundle['price'] ?? 0
-                ),
-
-                'validity' => null,
-
-                'category' => $bundle['productType'] ?? null,
-            ];
-        })
+    })
 
         ->values()
 
@@ -205,6 +200,7 @@ private function normalizeBundles(
         $this->baseUrl .
         "/data/plans/{$resolvedNetwork}"
     );
+
 
 
 

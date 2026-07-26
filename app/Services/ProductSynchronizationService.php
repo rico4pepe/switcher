@@ -34,6 +34,7 @@ private const UNKNOWN_VALIDITY = 'NA';
             $network
         );
 
+
         DB::transaction(function () use (
             $vendor,
             $productType,
