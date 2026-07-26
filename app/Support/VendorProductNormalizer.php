@@ -8,27 +8,27 @@ class VendorProductNormalizer
      * Normalize a vendor bundle into Switcher's standard format.
      */
     public function normalize(array $bundle): array
-    {
-        return [
-            ...$bundle,
+{
+    $metadata = $this->extractProductMetadata(
+        $bundle['allowance'] ?? ''
+    );
 
-            'network' => $this->normalizeNetwork(
-                $bundle['network'] ?? null
-            ),
+    return [
+        ...$bundle,
 
-            'allowance' => $this->normalizeAllowance(
-                $bundle['allowance'] ?? null
-            ),
+        'network' => $this->normalizeNetwork(
+            $bundle['network'] ?? null
+        ),
 
-            'validity' => $this->normalizeValidity(
-                $bundle['validity'] ?? null
-            ),
+        'allowance' => $metadata['allowance'],
 
-            'category' => $this->normalizeCategory(
-                $bundle['category'] ?? null
-            ),
-        ];
-    }
+        'validity' => $metadata['validity'],
+
+        'category' => $this->normalizeCategory(
+            $bundle['category'] ?? null
+        ),
+    ];
+}
 
     /**
      * Normalize network names.
@@ -54,6 +54,9 @@ class VendorProductNormalizer
         return str_replace(' ', '', $allowance);
     }
 
+
+
+
     /**
      * Normalize validity.
      */
@@ -77,4 +80,13 @@ class VendorProductNormalizer
             ? null
             : strtoupper(trim($category));
     }
+
+private function extractProductMetadata(string $productName): array
+{
+    return [
+        'allowance' => $this->normalizeAllowance($productName),
+        'validity'  => null,
+    ];
+}
+
 }
