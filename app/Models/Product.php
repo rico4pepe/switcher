@@ -13,6 +13,7 @@ class Product extends Model
         'product_type',
         'network',
         'display_name',
+        'allowance',
         'description',
         'amount',
         'validity',

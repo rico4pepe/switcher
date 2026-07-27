@@ -1,0 +1,548 @@
+
+# Architecture Decisions
+
+> **Document Type:** Architecture Decision Record (ADR)
+>
+> **Project:** Switcher
+>
+> **Status:** Approved
+>
+> **Version:** 1.0
+>
+> **Last Updated:** July 2026
+>
+> **Audience:** Backend Engineers, Solution Architects, DevOps Engineers, Technical Leads
+
+---
+
+# Overview
+
+This document defines the architectural principles and design decisions that govern the Switcher platform.
+
+It serves as the authoritative reference for understanding **why** the platform has been designed the way it has and establishes the constraints that future development must follow.
+
+This document does **not** describe implementation details. Instead, it documents the platform's architectural intent.
+
+---
+
+# Scope
+
+This document covers:
+
+- Canonical Domain Model
+- Product Catalogue
+- Vendor Integration
+- Transaction Identity
+- Request Identifier Strategy
+- Client Authentication
+- Product Synchronisation
+- Vendor Driver Responsibilities
+
+This document does **not** cover:
+
+- API endpoints
+- Database schema
+- Deployment
+- Operations
+- Monitoring
+- Infrastructure
+
+---
+
+# Design Goals
+
+The Switcher platform has been designed to satisfy the following objectives.
+
+| Goal            | Description                                                            |
+| --------------- | ---------------------------------------------------------------------- |
+| Vendor Agnostic | Support multiple vendors behind one public API.                        |
+| Stable API      | Prevent vendor changes from affecting clients.                         |
+| Extensible      | Allow new vendors with minimal platform changes.                       |
+| Maintainable    | Separate business logic from vendor implementations.                   |
+| Secure          | Resolve client identity through authentication rather than user input. |
+| Consistent      | Maintain one canonical representation of products and transactions.    |
+
+---
+
+# Decision 1 — Canonical Product Catalogue
+
+## Status
+
+Approved
+
+---
+
+## Problem
+
+Every vendor exposes its own product catalogue.
+
+Example:
+
+| Vendor   | Product Code |
+| -------- | ------------ |
+| Vendify  | DT001        |
+| Oatek    | MT251        |
+| Vendor X | DATA-2GB-MTN |
+
+Although the codes differ, they represent the same business product.
+
+Allowing vendor product codes into the core platform tightly couples Switcher to external systems.
+
+---
+
+## Decision
+
+Switcher owns a canonical product catalogue.
+
+Products stored within Switcher represent business products rather than vendor products.
+
+Example
+
+```
+MTN-2GB-30
+```
+
+exists only once regardless of how many vendors provide it.
+
+---
+
+## Architecture
+
+```text
+Client
+
+        │
+
+Canonical Product
+
+        │
+
+Vendor Mapping
+
+        │
+
+Vendor Product Code
+```
+
+---
+
+## Benefits
+
+- Vendor independence
+- Stable API
+- Simplified routing
+- Cleaner reporting
+- Easier onboarding of vendors
+
+---
+
+## Consequences
+
+Positive
+
+- Vendors can change product codes independently.
+- Clients never need vendor knowledge.
+
+Negative
+
+- Product synchronisation layer becomes mandatory.
+
+---
+
+# Decision 2 — Vendor Product Mapping
+
+## Status
+
+Approved
+
+---
+
+## Problem
+
+Vendor product identifiers cannot be exposed through the public API.
+
+---
+
+## Decision
+
+Vendor-specific product codes are stored separately.
+
+Relationship
+
+```text
+Canonical Product
+
+        │
+
+Vendor Product Mapping
+
+        │
+
+Vendor Product Code
+```
+
+---
+
+## Example
+
+```
+MTN-2GB-30
+
+├── Vendify → DT001
+├── Oatek → MT251
+└── RechargeNow → 9981
+```
+
+---
+
+## Benefits
+
+- One API
+- Multiple vendors
+- Independent vendor catalogues
+
+---
+
+# Decision 3 — Transaction Identity
+
+## Status
+
+Approved
+
+---
+
+## Problem
+
+A single identifier cannot satisfy the needs of clients, Switcher and vendors simultaneously.
+
+---
+
+## Decision
+
+Switcher maintains three independent transaction identifiers.
+
+| Identifier       | Owner    | Purpose                       |
+| ---------------- | -------- | ----------------------------- |
+| tracking_id      | Client   | Client reconciliation         |
+| ringo_reference  | Switcher | Internal transaction identity |
+| vendor_reference | Vendor   | Vendor reconciliation         |
+
+---
+
+## Architecture
+
+```text
+Client
+
+tracking_id
+
+        │
+
+Switcher
+
+ringo_reference
+
+        │
+
+Vendor
+
+vendor_reference
+```
+
+---
+
+## Benefits
+
+- Independent reconciliation
+- No identifier ownership conflicts
+- Vendor portability
+
+---
+
+# Decision 4 — Vendor Request Encoding
+
+## Status
+
+Approved
+
+---
+
+## Problem
+
+Different vendors require different request identifier formats.
+
+Example
+
+Vendify requires numeric identifiers.
+
+Oatek supports alphanumeric identifiers.
+
+Embedding formatting logic inside every driver causes duplication.
+
+---
+
+## Decision
+
+All vendor request identifiers are generated by a dedicated VendorRequestEncoder.
+
+---
+
+## Architecture
+
+```text
+Transaction
+
+transaction_id
+ringo_reference
+
+        │
+
+VendorRequestEncoder
+
+        │
+
+Vendor Specific Request ID
+```
+
+---
+
+## Vendor Behaviour
+
+| Vendor  | Internal Source | Output       |
+| ------- | --------------- | ------------ |
+| Vendify | transaction_id  | Numeric      |
+| Oatek   | ringo_reference | Alphanumeric |
+
+---
+
+## Benefits
+
+- Centralised encoding
+- No duplicated logic
+- Easier onboarding
+- Consistent implementation
+
+---
+
+# Decision 5 — Client Authentication
+
+## Status
+
+Approved
+
+---
+
+## Problem
+
+Allowing clients to submit client_id creates unnecessary trust in external input.
+
+---
+
+## Decision
+
+Client identity is resolved exclusively through API authentication.
+
+Public API requests never contain:
+
+```
+client_id
+```
+
+---
+
+## Authentication Flow
+
+```text
+API Key
+
+      │
+
+Authentication Middleware
+
+      │
+
+Client Lookup
+
+      │
+
+Authenticated Client
+
+      │
+
+Controller
+
+      │
+
+TransactionRequestData
+```
+
+---
+
+## Public API
+
+```json
+{
+    "tracking_id": "TX123",
+    "product_type": "data",
+    "network": "MTN",
+    "beneficiary": "08031234567"
+}
+```
+
+---
+
+## Internal Flow
+
+```text
+client_id
+
+↓
+
+Resolved from API Key
+```
+
+---
+
+## Benefits
+
+- Improved security
+- Simpler API
+- Prevents impersonation
+- Cleaner controller logic
+
+---
+
+# Decision 6 — Product Synchronisation
+
+## Status
+
+Approved
+
+---
+
+## Decision
+
+All vendor products pass through a normalisation pipeline before reaching the canonical catalogue.
+
+---
+
+## Workflow
+
+```text
+Vendor API
+
+      │
+
+Vendor Driver
+
+      │
+
+VendorProductNormalizer
+
+      │
+
+Canonical Product
+
+      │
+
+ProductSynchronizationService
+
+      │
+
+Products Table
+```
+
+---
+
+## Benefits
+
+- Consistent catalogue
+- Independent vendor integrations
+- Simplified product maintenance
+
+---
+
+# Decision 7 — Vendor Driver Responsibilities
+
+## Status
+
+Approved
+
+---
+
+## Responsibilities
+
+Vendor drivers SHALL:
+
+- Authenticate with vendors
+- Build vendor requests
+- Call vendor APIs
+- Normalise responses
+
+Vendor drivers SHALL NOT:
+
+- Generate request identifiers
+- Perform product mapping
+- Execute business rules
+- Persist transactions
+- Route requests
+
+---
+
+# Architecture Principles
+
+Every component within Switcher must adhere to the following principles.
+
+## Vendor Agnostic
+
+Business logic must never depend on a specific vendor.
+
+---
+
+## Canonical Domain
+
+Switcher owns the business model.
+
+Vendor models are translated into the canonical domain.
+
+---
+
+## Separation of Concerns
+
+Each component has a single responsibility.
+
+---
+
+## Extensibility
+
+Adding a new vendor should require:
+
+- Vendor Driver
+- Product Normalizer
+- Vendor Mapping
+
+No changes should be required to the public API.
+
+---
+
+# Architecture Compliance
+
+All future development must comply with the architectural decisions defined in this document.
+
+Any deviation from these decisions requires an explicit Architecture Decision Record (ADR) describing:
+
+- the problem,
+- the proposed change,
+- the rationale,
+- the expected impact,
+- and the approval status.
+
+---
+
+# Revision History
+
+cca
+
+| Version | Date      | Description                             |
+| ------- | --------- | --------------------------------------- |
+| 1.0     | July 2026 | Initial architecture decisions document |

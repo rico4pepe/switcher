@@ -213,23 +213,27 @@ $data['client_id'] = $client->id;
                 };
             }
 
-  public function requery(
-    Request $request
-)
+public function requery(Request $request)
 {
     $request->validate([
         'tracking_id' => 'required|string',
     ]);
 
-    $transaction = Transaction::where(
-        'tracking_id',
-        $request->tracking_id
-    )->firstOrFail();
+    $client = $request->attributes->get('client');
+
+    $transaction = Transaction::where('client_id', $client->id)
+        ->where('tracking_id', $request->tracking_id)
+        ->firstOrFail();
+
+        if (! $transaction) {
+    return response()->json([
+        'success' => false,
+        'message' => 'Transaction not found.',
+    ], 404);
+}
 
     return response()->json(
-        $this->service->requery(
-            $transaction
-        )
+        $this->service->requery($transaction)
     );
 }
 

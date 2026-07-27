@@ -12,23 +12,18 @@ class VendorDriverResolver
     ) {
     }
 
-    public function resolve(
-        int $vendorId
-    ): VendorInterface {
+ public function resolve(
+    int $vendorId
+): VendorInterface {
 
-        $vendor = Vendor::findOrFail($vendorId);
+    $vendor = Vendor::findOrFail($vendorId);
 
-        $drivers = VendorDriverRegistry::drivers();
+    $driverClass = VendorDriverRegistry::class(
+        $vendor->driver_key
+    );
 
-        if (! isset($drivers[$vendor->driver_key])) {
-
-            throw new \Exception('Unsupported driver');
-        }
-
-        $driverClass = $drivers[$vendor->driver_key]['class'];
-
-        return $this->container->make(
-            $driverClass
-        );
-    }
+    return $this->container->make(
+        $driverClass
+    );
+}
 }

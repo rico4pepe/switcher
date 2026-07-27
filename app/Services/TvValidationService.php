@@ -74,10 +74,9 @@ public function fetchAddons(
     string $packageCode
 ): array
 {
-    //  dd([
-    //     'method' => 'fetchAddons',
-    //     'packageCode' => $packageCode,
-    // ]);
+   // Currently only DSTV supports add-on products.
+// When additional providers support add-ons,
+// make this provider-driven instead of hard-coded.
     $routing = RoutingConfig::where(
         'product_type',
         'tv'

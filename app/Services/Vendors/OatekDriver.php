@@ -9,6 +9,7 @@ use App\Data\Responses\NormalizedVendorResponse;
 use Illuminate\Validation\ValidationException;
 use App\Services\VendorProductResolver;
 use App\Services\VendorRequestEncoder;
+use App\Support\VendorProductNormalizer;
 
 class OatekDriver extends BaseVendorDriver implements VendorInterface
 {
@@ -25,7 +26,8 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
 
           public function __construct(
     protected VendorProductResolver $resolver,
-     protected VendorRequestEncoder $requestEncoder
+     protected VendorRequestEncoder $requestEncoder,
+      protected VendorProductNormalizer $productNormalizer,
 )
 {
     $this->baseUrl = (string) config('services.oatek.base_url');
@@ -276,38 +278,40 @@ class OatekDriver extends BaseVendorDriver implements VendorInterface
                         );
                     }
 
-            private function normalizeBundles(
-                array $bundles
-            ): array {
+           private function normalizeBundles(array $bundles): array
+{
+    return collect($bundles)
 
-                return collect($bundles)
+        ->map(function ($bundle) {
 
-                    ->map(function ($bundle) {
+            $bundleData = [
 
-                        return [
+                'network' => strtoupper(
+                    $bundle['network'] ?? ''
+                ),
 
-                            'network' => strtoupper(
-                                $bundle['network'] ?? ''
-                            ),
+                'product_id' => $bundle['product_id'] ?? null,
 
-                            'product_id' => $bundle['product_id'] ?? null,
+                'allowance' => $bundle['allowance'] ?? null,
 
-                            'allowance' => $bundle['allowance'] ?? null,
+                'amount' => (float) (
+                    $bundle['price'] ?? 0
+                ),
 
-                            'amount' => (float) (
-                                $bundle['price'] ?? 0
-                            ),
+                'validity' => $bundle['validity'] ?? null,
 
-                            'validity' => $bundle['validity'] ?? null,
+                'category' => $bundle['category'] ?? null,
+            ];
 
-                            'category' => $bundle['category'] ?? null,
-                        ];
-                    })
+            return $this->productNormalizer->normalize(
+                $bundleData
+            );
+        })
 
-                    ->values()
+        ->values()
 
-                    ->toArray();
-            }
+        ->toArray();
+}
 
             public function validateTv(
                 string $smartCardNo,

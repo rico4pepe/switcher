@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Transaction;
 use App\Models\RoutingConfig;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 //use App\Services\Vendors\MockVendorDriver;
 use App\Services\Vendors\VendorDriverResolver;
@@ -394,11 +395,24 @@ try {
 
 } catch (\Throwable $e) {
 
-    dd([
-        'message' => $e->getMessage(),
-        'file' => $e->getFile(),
-        'line' => $e->getLine(),
+     Log::error('Failed to create transaction.', [
+
+        'exception' => $e,
+
+        'tracking_id' => $data['tracking_id'] ?? null,
+
+        'client_id' => $data['client_id'] ?? null,
+
+        'vendor_id' => $vendorId,
+
+        'payload' => $data,
+
     ]);
+
+    throw new \RuntimeException(
+        'Unable to initialise transaction.',
+        previous: $e
+    );
 }
     // CREATE TRANSACTION
 
@@ -659,105 +673,137 @@ try {
         );
     }
 }
- public function requery(Transaction $transaction): array
+public function requery(Transaction $transaction): array
 {
-    // only pending transactions should be requeried
-    if ($transaction->status !== 'pending') {
+    /*
+    |--------------------------------------------------------------------------
+    | Only pending transactions can be requeried
+    |--------------------------------------------------------------------------
+    */
 
-         $this->logEvent(
-        $transaction,
-        'requery_rejected',
-        'Transaction is not pending',
-    );
+    if ($transaction->status !== Transaction::STATUS_PENDING) {
 
-        $response = new NormalizedVendorResponse(
-            status: 'failed',
-            code: 'INVALID_STATE',
-            message: 'Transaction is not pending',
+        $this->logEvent(
+            $transaction,
+            'requery_rejected',
+            sprintf(
+                'Cannot requery transaction with status [%s].',
+                $transaction->status
+            )
         );
 
-
+        throw ValidationException::withMessages([
+            'transaction' => [
+                sprintf(
+                    'Only %s transactions can be requeried.',
+                    Transaction::STATUS_PENDING
+                ),
+            ],
+        ]);
     }
 
-    // 🔥 EVENT: requery started
+    /*
+    |--------------------------------------------------------------------------
+    | Requery started
+    |--------------------------------------------------------------------------
+    */
+
     $this->logEvent(
         $transaction,
         'requery_started',
         'Requery initiated'
     );
 
-    // $resolver = new VendorDriverResolver();
-
-    $driver = $this->resolver->resolve($transaction->vendor_id);
+    $driver = $this->resolver->resolve(
+        $transaction->vendor_id
+    );
 
     try {
 
         $response = $driver->requery($transaction);
 
-        // 🔥 EVENT: requery response
         $this->logEvent(
             $transaction,
             'requery_response',
             $response->message() ?? 'Requery completed',
             [
-                'status' => $response->status() ?? null,
-                'code' => $response->code() ?? null,
+                'status' => $response->status(),
+                'code'   => $response->code(),
             ]
         );
 
     } catch (\Throwable $e) {
 
-        $response = new NormalizedVendorResponse(
-            status: 'failed',
-            code: 'REQUERY_ERROR',
-            message: $e->getMessage(),
-        );
+        /*
+        |--------------------------------------------------------------------------
+        | Vendor could not be reached.
+        | Transaction remains pending because the final state is unknown.
+        |--------------------------------------------------------------------------
+        */
 
-        // 🔥 EVENT: requery exception
         $this->logEvent(
             $transaction,
             'requery_exception',
             $e->getMessage()
         );
+
+        $response = new NormalizedVendorResponse(
+            status: Transaction::STATUS_PENDING,
+            code: 'REQUERY_ERROR',
+            message: $e->getMessage(),
+        );
     }
 
-     if ($response->status() === Transaction::STATUS_SUCCESS) {
+    /*
+    |--------------------------------------------------------------------------
+    | Canonical state transition
+    |--------------------------------------------------------------------------
+    */
 
-        $transaction->markSuccessful();
+    match ($response->status()) {
 
-    } elseif ($response->status() === Transaction::STATUS_FAILED) {
+        Transaction::STATUS_SUCCESS => $transaction->markSuccessful(),
 
-        $transaction->markFailed();
+        Transaction::STATUS_FAILED => $transaction->markFailed(),
 
-    } else {
+        default => $transaction->markPending(),
+    };
 
-        $transaction->markPending();
-    }
+    /*
+    |--------------------------------------------------------------------------
+    | Persist latest vendor response
+    |--------------------------------------------------------------------------
+    */
 
-    // update transaction
-   $transaction->update([
+    $transaction->update([
 
-    'vendor_reference' => $response->vendorReference()
-        ?? $transaction->vendor_reference,
+        'vendor_reference' => $response->vendorReference()
+            ?? $transaction->vendor_reference,
 
-    'raw_vendor_response' => $response->toArray(),
+        'raw_vendor_response' => $response->toArray(),
 
+        'resolved_at' => now(),
 
+    ]);
 
-    'resolved_at' => now(),
-]);
+    /*
+    |--------------------------------------------------------------------------
+    | Timeline
+    |--------------------------------------------------------------------------
+    */
 
-    // 🔥 EVENT: requery resolved
     $this->logEvent(
         $transaction,
         'requery_resolved',
         'Transaction updated after requery',
         [
-            'final_status' => $response->status() ?? null,
+            'final_status' => $response->status(),
         ]
     );
 
-    return $this->formatResponse($transaction->fresh());
+    return $this->formatResponse(
+        $transaction->fresh()
+    );
 }
 
         private function logEvent(

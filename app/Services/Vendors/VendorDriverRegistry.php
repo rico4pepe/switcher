@@ -6,41 +6,38 @@ use RuntimeException;
 
 class VendorDriverRegistry
 {
-    public static function drivers(): array
+   public static function drivers(): array
     {
         return [
 
             'mock' => [
-                'label' => 'Mock Driver',
                 'class' => MockVendorDriver::class,
             ],
 
             'oatek' => [
-                'label' => 'Oatek Driver',
                 'class' => OatekDriver::class,
             ],
 
             'vendify' => [
-                'label' => 'Vendify Driver',
                 'class' => VendifyDriver::class,
             ],
 
         ];
     }
-
-    public function resolve(string $driverKey): VendorInterface
+ public static function has(string $driverKey): bool
     {
-        $drivers = self::drivers();
+        return isset(self::drivers()[$driverKey]);
+    }
 
-        if (! isset($drivers[$driverKey])) {
+    public static function class(string $driverKey): string
+    {
+        if (! self::has($driverKey)) {
 
             throw new RuntimeException(
                 "Vendor driver [{$driverKey}] not registered."
             );
         }
 
-        $driverClass = $drivers[$driverKey]['class'];
-
-        return app($driverClass);
+        return self::drivers()[$driverKey]['class'];
     }
 }
