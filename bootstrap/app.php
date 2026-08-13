@@ -5,7 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Http\Request;
-use Throwable;
+//use Throwable;
 use App\Http\Middleware\ClientApiKeyMiddleware;
 
 return Application::configure(basePath: dirname(__DIR__))

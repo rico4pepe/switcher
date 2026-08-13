@@ -34,33 +34,56 @@ API clients ── X-API-KEY ──> ┌──────────▼──�
 
 The application is a Laravel 12 monolith running on PHP 8.2+. Server-rendered operational pages use Blade, Tailwind CSS, Alpine.js, and Vite. Vendor calls are synchronous HTTP calls made with Laravel's HTTP client. Laravel provides optional database-backed queue, cache, sessions, and Telescope support; the current transaction path does not dispatch jobs.
 
+## Design Principles
+
+Switcher follows these architectural principles:
+
+- Canonical public API
+- Driver-based vendor abstraction
+- Transaction-first design
+- Idempotent request processing
+- Manual-first financial execution
+- Vendor-neutral product catalogue
+- Thin controllers, service orchestration
+- Immutable transaction audit trail
+
+## Transaction Execution Philosophy
+
+Switcher intentionally prefers correctness over automation.
+
+Financial transactions are executed using a single vendor in Manual mode.
+
+When the vendor outcome is uncertain (timeouts, transport failures, etc.), the transaction remains Pending and is resolved through Requery.
+
+Automatic retry and automatic failover are deliberately conservative because duplicate execution may result in financial loss.
+
 ## Runtime entry points
 
-| Surface | Purpose | Authentication |
-| --- | --- | --- |
-| `POST /api/vend` | Canonical vending request | Required `X-API-KEY` for an active client |
-| `POST /api/requery` | Requery a transaction by `tracking_id` | None currently applied |
-| `GET /api/bundles` | Active canonical data bundles by network | None currently applied |
-| TV, electricity, and betting validation endpoints | Pre-vend validation and catalogue lookup | None currently applied |
-| `POST /api/b2b` | Compatibility adapter for an Oatek-shaped request | None currently applied; client is hard-coded to ID 1 |
-| `/operations/*` | Transactions, vendors, routing, and client administration | Laravel web login (`auth`) |
-| `/dashboard`, `/profile`, `/auth/*` | Standard Breeze user workflows | Laravel session auth; dashboard also requires verified email |
-| `GET /up` | Laravel health endpoint | None |
+| Surface                                           | Purpose                                                    | Authentication                                               |
+| ------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `POST /api/vend`                                | Canonical vending request                                  | Required`X-API-KEY` for an active client                   |
+| `POST /api/requery`                             | Requery the caller's pending transaction by`tracking_id` | Required`X-API-KEY`                                        |
+| `GET /api/bundles`                              | Active canonical data bundles by network                   | Required`X-API-KEY`                                        |
+| TV, electricity, and betting validation endpoints | Pre-vend validation and catalogue lookup                   | Required`X-API-KEY`                                        |
+| `POST /api/b2b`                                 | Compatibility adapter for an Oatek-shaped request          | None currently applied; client is hard-coded to ID 1         |
+| `/operations/*`                                 | Transactions, vendors, routing, and client administration  | Laravel web login (`auth`)                                 |
+| `/dashboard`, `/profile`, `/auth/*`         | Standard Breeze user workflows                             | Laravel session auth; dashboard also requires verified email |
+| `GET /up`                                       | Laravel health endpoint                                    | None                                                         |
 
 API routes are defined in [routes/api.php](routes/api.php); web and operations routes are in [routes/web.php](routes/web.php). Route middleware alias `client.auth` is registered in [bootstrap/app.php](bootstrap/app.php).
 
 ## Application layers
 
-| Layer | Primary locations | Responsibility |
-| --- | --- | --- |
-| Delivery | `routes/`, `app/Http/Controllers/`, `app/Http/Middleware/` | HTTP routing, request validation, response formatting, and client-key lookup |
-| Application services | `app/Services/`, `app/Actions/` | Transaction orchestration, routing, validation, catalogue access, retry, synchronization, and operations queries |
-| Integration adapters | `app/Services/Vendors/` | Vendor-specific authentication, payload construction, HTTP calls, and response normalization |
-| Domain/persistence | `app/Models/`, `app/Data*/`, `database/migrations/` | Eloquent records, request/response DTOs, state transitions, and relational persistence |
-| Presentation | `resources/views/`, `resources/js/`, `resources/css/` | Operations console and supporting client-side behavior |
-| Background/maintenance | `app/Console/Commands/`, `routes/console.php` | Pending transaction requery and product synchronization |
+| Layer                  | Primary locations                                                | Responsibility                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Delivery               | `routes/`, `app/Http/Controllers/`, `app/Http/Middleware/` | HTTP routing, request validation, response formatting, and client-key lookup                                     |
+| Application services   | `app/Services/`, `app/Actions/`                              | Transaction orchestration, routing, validation, catalogue access, retry, synchronization, and operations queries |
+| Integration adapters   | `app/Services/Vendors/`                                        | Vendor-specific authentication, payload construction, HTTP calls, and response normalization                     |
+| Domain/persistence     | `app/Models/`, `app/Data*/`, `database/migrations/`        | Eloquent records, request/response DTOs, state transitions, and relational persistence                           |
+| Presentation           | `resources/views/`, `resources/js/`, `resources/css/`      | Operations console and supporting client-side behavior                                                           |
+| Background/maintenance | `app/Console/Commands/`, `routes/console.php`                | Pending transaction requery and product synchronization                                                          |
 
-Controllers remain deliberately thin. `VendController` validates the canonical request, derives `client_id` from the authenticated client, and calls `VendService`. `VendService` is the orchestration boundary that persists the transaction and applies routing, retries, failover, and state transitions.
+Controllers remain deliberately thin. `VendController` validates the canonical request, derives `client_id` from the authenticated client, and calls `VendService`. `VendService` is the orchestration boundary that persists the transaction and applies routing, retries, failover, state transitions, and transaction-initialization error logging.
 
 ## Core transaction flow
 
@@ -87,6 +110,45 @@ VendService
 { status, reference: ringo_reference, tracking_id, message }
 ```
 
+    Client
+
+    │
+
+    ClientApiKeyMiddleware
+
+    │
+
+    VendController
+
+    │
+
+    VendService
+
+    ┌────────────┴────────────┐
+
+ RoutingResolver      BundleService
+
+    │
+
+VendorDriverResolver
+
+    │
+
+ Vendor Driver
+
+    │
+
+NormalizedVendorResponse
+
+    │
+
+ Transaction
+
+    │
+
+ Transaction Events
+
+
 ### Routing and failover
 
 `RoutingResolver` first looks for an active `ClientRoutingConfig` matching `(client, product_type, network)`. If none exists, it uses the active global `RoutingConfig` for `(product_type, network)`. Each route selects a primary vendor and may name a fallback vendor.
@@ -95,23 +157,45 @@ VendService
 - **Auto mode:** the primary call is retried for retryable normalized error codes (`TIMEOUT`, `NETWORK_ERROR`, or `UNKNOWN`). `maxRetries: 2` means at most three attempts in total. If the resulting status is `failed` and failover is enabled with a fallback vendor, Switcher calls the fallback and records that vendor as the one used.
 - The route schema includes threshold, window, and minimum-sample fields for health-based failover policy. The current implementation uses only explicit `auto_failover_enabled` plus a fallback vendor; it does not calculate vendor health from those thresholds.
 
+
+## Transaction State Machine
+
+    +-----------+
+              | PENDING   |
+              +-----------+
+                 │
+       ┌─────────┴─────────┐
+       │                   │
+       ▼                   ▼
++------------+      +------------+
+| SUCCESS    |      | FAILED     |
++------------+      +------------+
+
+SUCCESS and FAILED are terminal states.
+
+Only PENDING transactions may be requeried.
+
+Unknown vendor outcomes remain PENDING until confirmed.
+
 ### Transaction state and audit trail
 
 Transactions have three canonical states: `pending`, `success`, and `failed`. The `Transaction` model protects terminal transitions: a successful transaction cannot become failed, and a failed transaction cannot become successful or pending. Every attempt is recorded in `transaction_events`, including creation, vendor calls/responses/exceptions, failover, and requery events.
 
 Switcher maintains three identifiers:
 
-| Identifier | Created by | Role |
-| --- | --- | --- |
-| `tracking_id` | Client | Client reconciliation and idempotency key; unique per client |
-| `ringo_reference` | Switcher | Immutable UUID transaction identity |
-| `vendor_reference` | Vendor | Upstream reconciliation identifier, when returned |
+| Identifier           | Created by | Role                                                         |
+| -------------------- | ---------- | ------------------------------------------------------------ |
+| `tracking_id`      | Client     | Client reconciliation and idempotency key; unique per client |
+| `ringo_reference`  | Switcher   | Immutable UUID transaction identity                          |
+| `vendor_reference` | Vendor     | Upstream reconciliation identifier, when returned            |
 
 Vendor request IDs are separately encoded by `VendorRequestEncoder`: Vendify receives a zero-padded numeric internal transaction ID; Oatek receives the `ringo_reference`. This keeps vendor constraints out of public identifiers.
 
 ### Pending resolution
 
-`transactions:resolve-pending` runs every five minutes through Laravel Scheduler. It processes pending records with a vendor in chunks of 100 and re-queries each vendor through the same driver interface. Operations users can also trigger requery from the transaction console, and `POST /api/requery` exposes it to API callers.
+`transactions:resolve-pending` runs every five minutes through Laravel Scheduler. It processes pending records with a vendor in chunks of 100 and re-queries each vendor through the same driver interface. Operations users can also trigger requery from the transaction console. `POST /api/requery` is API-key protected and scopes lookup to the caller's `(client_id, tracking_id)` pair.
+
+Requery is permitted only while a transaction is `pending`; attempts against terminal transactions produce a validation error and a `requery_rejected` event. If the vendor call itself throws, Switcher records a `requery_exception` event and retains `pending`, since the final vendor state is unknown.
 
 ## Vendor integration boundary
 
@@ -155,28 +239,30 @@ Vendor driver resolves the upstream product code
 
 `ProductCatalogService` returns active products by type and network. `BundleService` exposes active canonical data products from this catalogue. During a data vend, `VendService` confirms the submitted `product_code` belongs to the requested network and overwrites client-provided price with the catalogue amount.
 
-`ProductSynchronizationService` imports a vendor's data bundles, upserts canonical `products`, and creates/updates `vendor_product_mappings` in one database transaction. Run it manually with:
+`ProductSynchronizationService` imports a vendor's data bundles, upserts canonical `products`, and creates/updates `vendor_product_mappings` in one database transaction. `VendorProductNormalizer` gives both Oatek and Vendify a common bundle shape: it uppercases network/category, preserves the upstream product name as `display_name`, derives allowance and named-period validity when absent, and normalizes validity to an integer number of days. The canonical product code is derived from product type, network, allowance, and validity.
+
+Run synchronization manually with:
 
 ```bash
 php artisan switcher:sync-products oatek MTN
 ```
 
-The command accepts a driver key and network and currently synchronizes `data` products only. Product-code generation is derived from product type, network, allowance, and validity, so upstream normalizers must provide stable values.
+The command accepts a driver key and network and currently synchronizes `data` products only. Stable vendor names and metadata are important because they determine the canonical product identity.
 
 ## Data model
 
-| Entity | Key fields and relationships | Purpose |
-| --- | --- | --- |
-| `users` | Laravel users | Operations-console accounts |
-| `clients` | `api_key`, `is_active`; 1:N transactions and client routes | API consumers and their authentication identity |
-| `vendors` | `driver_key`, active flag; 1:N transactions and mappings | Configured upstream integration instances |
-| `routing_config` | `(product_type, network)`, primary/fallback vendor, mode | Default routing policy |
-| `client_routing_configs` | unique `(client_id, product_type, network)` | Per-client override of the default policy |
-| `transactions` | three references, client/vendor FKs, status, raw request/response, latency | System of record for a vending request |
-| `transaction_events` | transaction FK, event type, message, JSON metadata | Append-only-ish execution timeline |
-| `products` | canonical unique `product_code`, type, network, price, validity, metadata | Public product catalogue |
-| `vendor_product_mappings` | unique `(vendor_id, product_id)`, vendor product code | Translation from canonical product to vendor product |
-| Laravel support tables | cache, jobs, failed jobs, sessions, personal tokens, Telescope tables | Framework services and diagnostics |
+| Entity                      | Key fields and relationships                                                                               | Purpose                                              |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `users`                   | Laravel users                                                                                              | Operations-console accounts                          |
+| `clients`                 | `api_key`, `is_active`; 1:N transactions and client routes                                             | API consumers and their authentication identity      |
+| `vendors`                 | `driver_key`, active flag; 1:N transactions and mappings                                                 | Configured upstream integration instances            |
+| `routing_configs`         | unique`(product_type, network)`, lookup index including `is_active`, primary/fallback vendor FKs, mode | Default routing policy                               |
+| `client_routing_configs`  | unique`(client_id, product_type, network)` plus active-route lookup index                                | Per-client override of the default policy            |
+| `transactions`            | three references, client/vendor FKs, status, raw request/response, latency                                 | System of record for a vending request               |
+| `transaction_events`      | transaction FK, event type, message, JSON metadata                                                         | Append-only-ish execution timeline                   |
+| `products`                | canonical unique`product_code`, type, network, display name, allowance, price, validity, metadata        | Public product catalogue                             |
+| `vendor_product_mappings` | unique`(vendor_id, product_id)`, vendor product code                                                     | Translation from canonical product to vendor product |
+| Laravel support tables      | cache, jobs, failed jobs, sessions, personal tokens, Telescope tables                                      | Framework services and diagnostics                   |
 
 The transaction schema enforces a unique `(client_id, tracking_id)` pair and a globally unique `ringo_reference`. Relationships provide the operational console with the vendor, client, and chronological event history.
 
@@ -188,7 +274,7 @@ TV, electricity, and betting validation services resolve an active **global** ro
 
 ### Security boundaries
 
-- `/api/vend` authenticates through `X-API-KEY`, looks up an active `Client`, and never accepts `client_id` directly from the public request.
+- All canonical `/api/*` endpoints (`vend`, `requery`, bundles, and validation) authenticate through `X-API-KEY`, look up an active `Client`, and use that identity rather than accepting a public `client_id`.
 - Operations routes require Laravel's `auth` middleware. The dashboard additionally requires email verification.
 - Vendor credentials are read from environment variables via `config/services.php`; do not commit them.
 - Database records include raw vendor request and response payloads. Treat database access, exports, backups, and Telescope data as potentially sensitive.
@@ -207,12 +293,12 @@ The application needs PHP 8.2+, Composer, Node/Vite for asset builds, and a conf
 
 Typical process responsibilities are:
 
-| Process | Responsibility |
-| --- | --- |
-| Web/PHP runtime | Serves web and API requests |
-| Scheduler (`php artisan schedule:work` or cron `schedule:run`) | Executes the five-minute pending-transaction requery |
-| Queue worker, if queues are enabled | Processes framework/Telescope or future application jobs |
-| Vite build | Produces versioned UI assets for production |
+| Process                                                            | Responsibility                                           |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
+| Web/PHP runtime                                                    | Serves web and API requests                              |
+| Scheduler (`php artisan schedule:work` or cron `schedule:run`) | Executes the five-minute pending-transaction requery     |
+| Queue worker, if queues are enabled                                | Processes framework/Telescope or future application jobs |
+| Vite build                                                         | Produces versioned UI assets for production              |
 
 The provided Composer `dev` script starts Laravel's development server, queue listener, Pail logs, and Vite development server concurrently. Run migrations before serving the app and ensure vendor service credentials are supplied through the environment.
 
@@ -242,13 +328,12 @@ docs/Architectural_Decisions.md  Design rationale / ADRs
 
 These are observed implementation facts, not aspirational design:
 
-- Only `POST /api/vend` is protected by `client.auth`. Catalogue, validation, requery, and `/api/b2b` endpoints currently have no client API-key middleware.
 - `/api/b2b` is a compatibility adapter that sets `client_id` to `1`; it is not equivalent to the authenticated canonical API.
 - Product mapping resolution uses `driver_key`, not the exact vendor ID selected by a route. Multiple configured vendor records with the same driver key therefore require careful mapping/selection management.
 - Retry calls happen inline with no backoff or delay, and vendor HTTP timeout/retry configuration is not set in the drivers.
 - The automatic failover decision is response-status based; route health threshold fields are not yet consumed.
-- The scheduler requery route and API requery lookup use `tracking_id` without a client scope. Combined with public access, this should be reviewed before production exposure.
-- In the manual transaction-creation path, an insert exception invokes Laravel's `dd()`, which is unsuitable for a production request path.
+- The canonical API requery is authenticated, client-scoped, and pending-only. The scheduler intentionally works across all pending transactions, while the unauthenticated `/api/b2b` compatibility endpoint remains outside this boundary.
+- Transaction-creation failures are logged with request context and rethrown as a runtime exception. Because the log context includes the supplied payload, log retention and access must be treated as sensitive.
 - `resolved_at` is written after both pending and terminal executions. Consumers should rely on `status` for finality.
 - The included test suite is predominantly Laravel/Breeze scaffold coverage; transaction routing, vendor adapters, failover, and reconciliation need focused automated coverage.
 

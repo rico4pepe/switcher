@@ -139,6 +139,14 @@ Route::get(
     ]
 )->name('transactions.export.csv');
 
+
+Route::post(
+    '/operations/clients/{client}/approve-live',
+    [ClientController::class, 'approveLive']
+)->name('clients.approve-live');
+
+
+
 });
 
 

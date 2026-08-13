@@ -2,8 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\ClientApiKey;
 use Closure;
-use App\Models\Client;
 use Illuminate\Http\Request;
 
 class ClientApiKeyMiddleware
@@ -12,36 +12,38 @@ class ClientApiKeyMiddleware
         Request $request,
         Closure $next
     ) {
-
-        $apiKey = $request->header(
-            'X-API-KEY'
-        );
+        $apiKey = $request->header('X-API-KEY');
 
         if (! $apiKey) {
-
             return response()->json([
-                'message' => 'API key missing.'
+                'message' => 'API key missing.',
             ], 401);
         }
 
-        $client = Client::query()
-
-            ->where('api_key', $apiKey)
-
+        $clientApiKey = ClientApiKey::query()
+            ->where('key', $apiKey)
             ->where('is_active', true)
-
+            ->with('client')
             ->first();
 
-        if (! $client) {
-
+        if (
+            ! $clientApiKey ||
+            ! $clientApiKey->client ||
+            ! $clientApiKey->client->is_active
+        ) {
             return response()->json([
-                'message' => 'Invalid API key.'
+                'message' => 'Invalid API key.',
             ], 401);
         }
 
         $request->attributes->set(
             'client',
-            $client
+            $clientApiKey->client
+        );
+
+        $request->attributes->set(
+            'environment',
+            $clientApiKey->environment
         );
 
         return $next($request);

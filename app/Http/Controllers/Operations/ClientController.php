@@ -10,6 +10,7 @@ use App\Models\Client;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use App\Models\ClientApiKey;
 
 class ClientController extends Controller
 {
@@ -132,7 +133,9 @@ public function store(
 
         'organization_name' => $validated['organization_name'],
 
-        'name' => strtoupper($validated['name']),
+        'name' => strtoupper(
+            trim($validated['name'])
+        ),
 
         'email' => $validated['email'] ?? null,
 
@@ -140,14 +143,27 @@ public function store(
 
         'phone' => $validated['phone'] ?? null,
 
-        'api_key' => Str::random(64),
+        'is_active' => true,
+
+    ]);
+
+    ClientApiKey::create([
+
+        'client_id' => $client->id,
+
+        'key' => Str::random(64),
+
+        'environment' => 'test',
 
         'is_active' => true,
 
     ]);
 
     return redirect()
-        ->route('operations.clients.show', $client)
+        ->route(
+            'operations.clients.show',
+            $client
+        )
         ->with(
             'success',
             'Client created successfully.'
@@ -264,8 +280,25 @@ public function regenerateKey(
     Client $client
 ): RedirectResponse {
 
-    $client->update([
-        'api_key' => Str::random(64),
+    $apiKey = $client->apiKeys()
+        ->where('environment', 'test')
+        ->first();
+
+    if (! $apiKey) {
+        return redirect()
+            ->route(
+                'operations.clients.show',
+                $client
+            )
+            ->with(
+                'error',
+                'No active TEST API key found for this client.'
+            );
+    }
+
+    $apiKey->update([
+        'key' => Str::random(64),
+        'is_active' => true,
     ]);
 
     return redirect()
@@ -275,8 +308,62 @@ public function regenerateKey(
         )
         ->with(
             'success',
-            'API key regenerated successfully.'
+            'TEST API key regenerated successfully.'
+        );
+}
+
+
+public function approveLive(
+    Client $client
+): RedirectResponse {
+
+    $testKey = $client->apiKeys()
+        ->where('environment', 'test')
+        ->first();
+
+    if (! $testKey) {
+        return redirect()
+            ->route(
+                'operations.clients.show',
+                $client
+            )
+            ->with(
+                'error',
+                'Client must complete TEST onboarding before LIVE access can be approved.'
+            );
+    }
+
+    $liveKey = $client->apiKeys()
+        ->where('environment', 'live')
+        ->first();
+
+    if ($liveKey) {
+
+        $liveKey->update([
+            'key' => Str::random(64),
+            'is_active' => true,
+        ]);
+
+    } else {
+
+        ClientApiKey::create([
+            'client_id' => $client->id,
+            'key' => Str::random(64),
+            'environment' => 'live',
+            'is_active' => true,
+        ]);
+    }
+
+    return redirect()
+        ->route(
+            'operations.clients.show',
+            $client
+        )
+        ->with(
+            'success',
+            'LIVE API access approved successfully.'
         );
 }
 
 }
+

@@ -28,8 +28,6 @@ public function __construct(
 
     public function handle(array $data): array
     {
-
-
             $data['product_type'] = strtolower(
             trim($data['product_type'])
         );
@@ -123,24 +121,33 @@ if (
 }
 
 
-        // 1. IDEMPOTENCY CHECK
-        $existing = Transaction::query()
 
-    ->where(
-        'client_id',
-        $data['client_id']
-    )
-
-    ->where(
-        'tracking_id',
-        $data['tracking_id']
-    )
-
+// 1. IDEMPOTENCY CHECK
+$existing = Transaction::query()
+    ->where('client_id', $data['client_id'])
+    ->where('tracking_id', $data['tracking_id'])
     ->first();
 
-        if ($existing) {
-            return $this->formatResponse($existing);
-        }
+if ($existing) {
+
+    $sameRequest =
+        $existing->product_type === $data['product_type']
+        && $existing->network === $data['network']
+        && $existing->beneficiary === ($data['beneficiary'] ?? null)
+        && number_format((float) $existing->amount, 2, '.', '')
+            === number_format((float) ($data['amount'] ?? 0), 2, '.', '');
+
+    if (! $sameRequest) {
+
+        throw ValidationException::withMessages([
+            'tracking_id' => [
+                 'IDEMPOTENCY_CONFLICT: tracking_id has already been used for a different transaction.',
+            ],
+        ]);
+    }
+
+    return $this->formatResponse($existing);
+}
 
 
         // 2. RESOLVE ROUTING
@@ -188,25 +195,31 @@ if (
     // }
 
             private function formatResponse(
-                Transaction $transaction
-            ): array {
+    Transaction $transaction
+): array {
 
-                return [
+    return [
 
-                    'status' => $transaction->status,
+        'status' => $transaction->status,
 
-                    'reference' => $transaction->ringo_reference,
+        'code' => data_get(
+            $transaction->raw_vendor_response,
+            'code',
+            'UNKNOWN'
+        ),
 
-                    'tracking_id' => $transaction->tracking_id,
+        'reference' => $transaction->ringo_reference,
 
-                    'message' => data_get(
-                        $transaction->raw_vendor_response,
-                        'message',
-                        'Transaction processed'
-                    ),
+        'tracking_id' => $transaction->tracking_id,
 
-                ];
-            }
+        'message' => data_get(
+            $transaction->raw_vendor_response,
+            'message',
+            'Transaction processed'
+        ),
+
+    ];
+}
 private function fallbackMessage(string $status): string
     {
         return match ($status) {
@@ -234,116 +247,77 @@ private function fallbackMessage(string $status): string
             return $this->executeTransaction($vendorId, $data, false);
         }
 
-                    private function autoFlow($routing, array $data): array
-            {
-                $primaryVendorId = $routing->primary_vendor_id;
+ private function autoFlow($routing, array $data): array
+{
+    $primaryVendorId = $routing->primary_vendor_id;
 
-                // 1. Create transaction FIRST (single record)
-                $transaction = Transaction::create([
-                    'ringo_reference' => Str::uuid(),
-                    'tracking_id' => $data['tracking_id'],
-                    'client_id' => $data['client_id'],
-                    'vendor_id' => $primaryVendorId,
-                    'product_type' => $data['product_type'],
-                    'network' => $data['network'],
-                    'beneficiary' => $data['beneficiary'] ?? null,
-                    'amount' => $data['amount'],
-                    'status' => 'pending',
-                    'raw_vendor_request' => $data,
-                ]);
+    // 1. Create transaction
+    $result = $this->createTransaction(
+        vendorId: $primaryVendorId,
+        data: $data
+    );
 
-                // 🔥 Timeline: transaction created
-                $this->logEvent(
-                    $transaction,
-                    'transaction_created',
-                    'Transaction initialized'
-                );
+    $transaction = $result['transaction'];
 
-                $start = microtime(true);
+    // 2. Existing idempotent transaction
+    // Do NOT call any vendor again.
+    if ($result['existing']) {
+        return $this->formatResponse(
+            $transaction->fresh()
+        );
+    }
 
-                // 🔥 Timeline: primary vendor call
-                $this->logEvent(
-                    $transaction,
-                    'vendor_called',
-                    'Calling primary vendor',
-                    [
-                        'vendor_id' => $primaryVendorId,
-                    ]
-                );
+    // 3. Transaction created
+    $this->logEvent(
+        $transaction,
+        'transaction_created',
+        'Transaction initialized'
+    );
 
-                // 2. Try primary
-                $response = $this->executeRaw(
-                    $transaction,
-                    $primaryVendorId,
-                    $data,
-                    true
-                );
+    $start = microtime(true);
 
-                // 🔥 Timeline: vendor response
-                $this->logEvent(
-                    $transaction,
-                    'vendor_response',
-                    $response->message() ?? 'Vendor responded',
-                    [
-                        'status' => $response->status() ?? null,
-                        'code' => $response->code() ?? null,
-                    ]
-                );
+    $vendorUsed = $primaryVendorId;
 
-                // 3. FAILOVER CONDITION
-                if (
-                    $response->status() === 'failed' &&
-                    $routing->auto_failover_enabled &&
-                    $routing->fallback_vendor_id
-                ) {
-                    $fallbackVendorId = $routing->fallback_vendor_id;
+    // 4. Try primary vendor
+    $response = $this->executeRaw(
+        $transaction,
+        $primaryVendorId,
+        $data,
+        false
+    );
 
-                    // 🔥 Timeline: failover triggered
-                    $this->logEvent(
-                        $transaction,
-                        'failover_triggered',
-                        'Switching to fallback vendor',
-                        [
-                            'from_vendor' => $primaryVendorId,
-                            'to_vendor' => $fallbackVendorId,
-                        ]
-                    );
+    // 5. FAILOVER CONDITION
+    if (
+        $response->status() === Transaction::STATUS_FAILED &&
+        $routing->auto_failover_enabled &&
+        $routing->fallback_vendor_id
+    ) {
+        $fallbackVendorId = $routing->fallback_vendor_id;
 
-                    // 🔥 Timeline: fallback vendor call
-                    $this->logEvent(
-                        $transaction,
-                        'vendor_called',
-                        'Calling fallback vendor',
-                        [
-                            'vendor_id' => $fallbackVendorId,
-                        ]
-                    );
+        $this->logEvent(
+            $transaction,
+            'failover_triggered',
+            'Switching to fallback vendor',
+            [
+                'from_vendor' => $primaryVendorId,
+                'to_vendor' => $fallbackVendorId,
+            ]
+        );
 
-                    $response = $this->executeRaw(
-                        $transaction,
-                        $fallbackVendorId,
-                        $data,
-                        true
-                    );
+        $response = $this->executeRaw(
+            $transaction,
+            $fallbackVendorId,
+            $data,
+            false
+        );
 
-                    // 🔥 Timeline: fallback response
-                    $this->logEvent(
-                        $transaction,
-                        'vendor_response',
-                        $response->message() ?? 'Fallback vendor responded',
-                        [
-                         'status' => $response->status(),
-                        'code' => $response->code(),
-                        ]
-                    );
+        $vendorUsed = $fallbackVendorId;
+    }
 
-                    // update vendor used
-                    $transaction->vendor_id = $fallbackVendorId;
-                }
+    $end = microtime(true);
 
-                $end = microtime(true);
-
-                 if ($response->status() === Transaction::STATUS_SUCCESS) {
+    // 6. Apply final transaction state
+    if ($response->status() === Transaction::STATUS_SUCCESS) {
 
         $transaction->markSuccessful();
 
@@ -356,90 +330,68 @@ private function fallbackMessage(string $status): string
         $transaction->markPending();
     }
 
-                // 4. Update transaction
-                $transaction->update([
+    // 7. Persist execution metadata
+    $transaction->update([
+        'vendor_id' => $vendorUsed,
 
-                    'vendor_reference' => $response->vendorReference()?? null,
-                    'response_time_ms' => ($end - $start) * 1000,
-                    'raw_vendor_response' => $response->toArray(),
+        'vendor_reference' => $response->vendorReference(),
 
-                    'resolved_at' => now(),
+        'response_time_ms' => ($end - $start) * 1000,
 
-                ]);
+        'raw_vendor_response' => $response->toArray(),
+    ]);
 
-                return $this->formatResponse($transaction->fresh());
-            }
+    // 8. Return Switcher response
+    return $this->formatResponse(
+        $transaction->fresh()
+    );
+}
 
- private function executeTransaction(
+private function executeTransaction(
     int $vendorId,
     array $data,
     bool $allowRetry
 ): array {
 
-
-try {
-
-    //code...
-      $transaction = Transaction::create([
-        'ringo_reference' => Str::uuid(),
-        'tracking_id' => $data['tracking_id'],
-        'client_id' => $data['client_id'],
-        'vendor_id' => $vendorId,
-        'product_type' => $data['product_type'],
-        'network' => $data['network'],
-        'beneficiary' => $data['beneficiary'],
-       'amount' => $data['amount'],
-        'status' => Transaction::STATUS_PENDING,
-        'raw_vendor_request' => $data,
-    ]);
-
-} catch (\Throwable $e) {
-
-     Log::error('Failed to create transaction.', [
-
-        'exception' => $e,
-
-        'tracking_id' => $data['tracking_id'] ?? null,
-
-        'client_id' => $data['client_id'] ?? null,
-
-        'vendor_id' => $vendorId,
-
-        'payload' => $data,
-
-    ]);
-
-    throw new \RuntimeException(
-        'Unable to initialise transaction.',
-        previous: $e
+    // 1. CREATE TRANSACTION
+    $result = $this->createTransaction(
+        vendorId: $vendorId,
+        data: $data
     );
-}
-    // CREATE TRANSACTION
 
+    $transaction = $result['transaction'];
 
-    // 🔥 EVENT: transaction created
+    // 2. EXISTING IDEMPOTENT TRANSACTION
+    // Do NOT call the vendor again.
+    if ($result['existing']) {
+        return $this->formatResponse(
+            $transaction->fresh()
+        );
+    }
+
+    // 3. TRANSACTION CREATED
     $this->logEvent(
         $transaction,
         'transaction_created',
         'Transaction initialized'
     );
 
-
-
-   $driver = $this->resolver->resolve(
-    $vendorId
-);
+    // 4. RESOLVE VENDOR DRIVER
+    $driver = $this->resolver->resolve(
+        $vendorId
+    );
 
     $start = microtime(true);
 
+    // 5. BUILD VENDOR PAYLOAD
     $payload = $this->buildPayload(
-    $transaction,
-    $data
-);
-
+        $transaction,
+        $data
+    );
 
     try {
 
+        // 6. EXECUTE VENDOR REQUEST
         if ($allowRetry) {
 
             $response = $this->retryExecutor->execute(
@@ -451,7 +403,6 @@ try {
                     $vendorId
                 ) {
 
-                    // 🔥 EVENT: vendor called
                     $this->logEvent(
                         $transaction,
                         'vendor_called',
@@ -464,7 +415,6 @@ try {
 
                     $response = $driver->vend($payload);
 
-                    // 🔥 EVENT: vendor response
                     $this->logEvent(
                         $transaction,
                         'vendor_response',
@@ -480,7 +430,6 @@ try {
                 },
 
                 shouldRetry: function ($response) {
-
                     return $this->shouldRetry($response);
                 },
 
@@ -489,7 +438,6 @@ try {
 
         } else {
 
-            // 🔥 EVENT: vendor called
             $this->logEvent(
                 $transaction,
                 'vendor_called',
@@ -501,7 +449,6 @@ try {
 
             $response = $driver->vend($payload);
 
-            // 🔥 EVENT: vendor response
             $this->logEvent(
                 $transaction,
                 'vendor_response',
@@ -515,15 +462,16 @@ try {
 
     } catch (\Throwable $e) {
 
-        // 🔥 EVENT: vendor exception
         $this->logEvent(
             $transaction,
             'vendor_exception',
             $e->getMessage()
         );
 
+        // Vendor outcome is unknown.
+        // Keep transaction pending for requery.
         $response = new NormalizedVendorResponse(
-            status: Transaction::STATUS_FAILED,
+            status: Transaction::STATUS_PENDING,
             code: 'TIMEOUT',
             message: $e->getMessage(),
         );
@@ -531,7 +479,7 @@ try {
 
     $end = microtime(true);
 
-    // ✅ CANONICAL STATE TRANSITION
+    // 7. CANONICAL STATE TRANSITION
     if ($response->status() === Transaction::STATUS_SUCCESS) {
 
         $transaction->markSuccessful();
@@ -545,18 +493,16 @@ try {
         $transaction->markPending();
     }
 
-    // ✅ EXECUTION METADATA
+    // 8. PERSIST EXECUTION METADATA
     $transaction->update([
         'vendor_reference' => $response->vendorReference(),
 
         'response_time_ms' => ($end - $start) * 1000,
 
         'raw_vendor_response' => $response->toArray(),
-
-
-    'resolved_at' => now(),
     ]);
 
+    // 9. RETURN SWITCHER RESPONSE
     return $this->formatResponse(
         $transaction->fresh()
     );
@@ -667,9 +613,9 @@ try {
         );
 
         return new NormalizedVendorResponse(
-            status: 'failed',
-            code: 'TIMEOUT',
-            message: $e->getMessage(),
+             status: Transaction::STATUS_PENDING,
+        code: 'TIMEOUT',
+        message: $e->getMessage(),
         );
     }
 }
@@ -782,7 +728,6 @@ public function requery(Transaction $transaction): array
 
         'raw_vendor_response' => $response->toArray(),
 
-        'resolved_at' => now(),
 
     ]);
 
@@ -869,6 +814,76 @@ private function buildPayload(
 
         meta: $data['meta'] ?? [],
     );
+}
+
+
+
+private function createTransaction(
+    int $vendorId,
+    array $data
+): array {
+    try {
+
+        $transaction = Transaction::create([
+            'ringo_reference' => Str::uuid(),
+            'tracking_id' => $data['tracking_id'],
+            'client_id' => $data['client_id'],
+            'vendor_id' => $vendorId,
+            'product_type' => $data['product_type'],
+            'network' => $data['network'],
+            'beneficiary' => $data['beneficiary'] ?? null,
+            'amount' => $data['amount'],
+            'status' => Transaction::STATUS_PENDING,
+            'raw_vendor_request' => $data,
+        ]);
+
+        return [
+            'transaction' => $transaction,
+            'existing' => false,
+        ];
+
+    } catch (\Illuminate\Database\QueryException $e) {
+
+        $errorCode = (int) ($e->errorInfo[1] ?? 0);
+
+        if ($errorCode !== 1062) {
+            throw $e;
+        }
+
+        $existing = Transaction::query()
+            ->where('client_id', $data['client_id'])
+            ->where('tracking_id', $data['tracking_id'])
+            ->first();
+
+        if (! $existing) {
+            throw $e;
+        }
+
+        $sameRequest =
+            $existing->product_type === $data['product_type']
+            && $existing->network === $data['network']
+            && $existing->beneficiary === ($data['beneficiary'] ?? null)
+            && number_format((float) $existing->amount, 2, '.', '')
+                === number_format(
+                    (float) ($data['amount'] ?? 0),
+                    2,
+                    '.',
+                    ''
+                );
+
+        if (! $sameRequest) {
+            throw ValidationException::withMessages([
+                'tracking_id' => [
+                    'IDEMPOTENCY_CONFLICT: tracking_id has already been used for a different transaction.',
+                ],
+            ]);
+        }
+
+        return [
+            'transaction' => $existing,
+            'existing' => true,
+        ];
+    }
 }
 
 

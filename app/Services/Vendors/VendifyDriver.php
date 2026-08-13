@@ -341,12 +341,15 @@ private function buildAirtimePayload(
 ): array
 {
     return [
-
         'beneficiaryMsisdn' => $payload->beneficiary,
 
         'amount' => (string) $payload->amount,
 
-        'trackingId' => $payload->tracking_id,
+        'trackingId' => $this->requestEncoder->encode(
+            self::DRIVER_KEY,
+            $payload->transaction_id,
+            $payload->ringo_reference
+        ),
     ];
 }
 
